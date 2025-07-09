@@ -16,7 +16,10 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-producti
 const getAllowedOrigins = () => {
   return [
     'https://projectvtuber.com',
-    'https://www.projectvtuber.com'
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'https://localhost:3000',
+    'https://localhost:5173'
   ];
 };
 
@@ -69,10 +72,11 @@ app.options('/api/auth/*', cors(corsOptions));
 app.options('/api/orders', cors(corsOptions));
 
 // Kết nối MongoDB
-mongoose.connect(process.env.MONGODB_URI, {
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/vtuberverse';
+mongoose.connect(MONGODB_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true
-}).then(() => console.log('MongoDB connected'))
+}).then(() => console.log('MongoDB connected to', mongoose.connection.name))
   .catch(err => console.error('MongoDB connection error:', err));
 
 // Mongoose User model
@@ -209,18 +213,17 @@ app.post('/api/auth/register', async (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-
-    // Validate input
     if (!email || !password) {
       return res.status(400).json({ error: 'Email và mật khẩu đều bắt buộc' });
     }
-
-    // Find user
-    const user = await User.findOne({ email });
-    if (!user || !comparePassword(password, user.password)) {
-      return res.status(401).json({ error: 'Email hoặc mật khẩu không đúng' });
+    // Tìm user theo email hoặc username
+    let user = await User.findOne({ email });
+    if (!user) {
+      user = await User.findOne({ username: email }); // Cho phép đăng nhập bằng username
     }
-
+    if (!user || !comparePassword(password, user.password)) {
+      return res.status(401).json({ error: 'Email/Username hoặc mật khẩu không đúng' });
+    }
     const token = generateToken(user);
     res.json({
       message: 'Đăng nhập thành công',
@@ -233,7 +236,7 @@ app.post('/api/auth/login', async (req, res) => {
       token
     });
   } catch (error) {
-    res.status(500).json({ error: 'Lỗi server' });
+    res.status(500).json({ error: 'Lỗi server', details: error.message });
   }
 });
 
@@ -318,14 +321,19 @@ app.post('/api/commissions', authenticateToken, async (req, res) => {
     }
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
+    // Đảm bảo price là Number và không bị làm tròn sai
+    const priceNumber = Number(price);
+    if (isNaN(priceNumber) || priceNumber < 0) {
+      return res.status(400).json({ error: 'Giá trị price không hợp lệ' });
+    }
     const commission = await Commission.create({
-      title, description, type, price, currency: currency || 'VND',
+      title, description, type, price: priceNumber, currency: currency || 'VND',
       status: 'open', user_id: user._id, artist_name: user.username, artist_avatar: user.avatar,
       deadline, requirements: requirements || [], examples: examples || [], tags: tags || []
     });
     res.status(201).json({ message: 'Commission tạo thành công', commission });
   } catch (error) {
-    res.status(500).json({ error: 'Lỗi server' });
+    res.status(500).json({ error: 'Lỗi server', details: error.message });
   }
 });
 
