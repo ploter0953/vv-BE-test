@@ -62,6 +62,15 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json());
 
+// Handle CORS preflight requests
+app.options('*', cors(corsOptions));
+
+// Specific OPTIONS routes for main endpoints
+app.options('/api/commissions', cors(corsOptions));
+app.options('/api/users', cors(corsOptions));
+app.options('/api/auth/*', cors(corsOptions));
+app.options('/api/orders', cors(corsOptions));
+
 // Kết nối MongoDB
 mongoose.connect(process.env.MONGODB_URI, {
   useNewUrlParser: true,
@@ -145,6 +154,15 @@ function authenticateToken(req, res, next) {
     next();
   });
 }
+
+// Test endpoint
+app.get('/api/test', (req, res) => {
+  res.json({ 
+    message: 'API is working!', 
+    timestamp: new Date().toISOString(),
+    version: '1.0.0'
+  });
+});
 
 // Routes
 
