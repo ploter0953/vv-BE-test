@@ -16,10 +16,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-producti
 const getAllowedOrigins = () => {
   return [
     'https://projectvtuber.com',
-    'http://localhost:3000',
-    'http://localhost:5173',
-    'https://localhost:3000',
-    'https://localhost:5173'
+    'https://www.projectvtuber.com'
   ];
 };
 
