@@ -154,6 +154,31 @@ const orderSchema = new mongoose.Schema({
 });
 const Order = mongoose.model('Order', orderSchema);
 
+// Helper function to extract public_id from Cloudinary URL
+function extractPublicIdFromCloudinaryUrl(url) {
+  if (!url || !url.includes('cloudinary.com')) {
+    return null;
+  }
+  
+  try {
+    // Cloudinary URL format: https://res.cloudinary.com/cloud_name/image/upload/v1234567890/folder/filename.jpg
+    const urlParts = url.split('/');
+    const uploadIndex = urlParts.findIndex(part => part === 'upload');
+    
+    if (uploadIndex !== -1 && uploadIndex + 2 < urlParts.length) {
+      // Get the part after 'upload' and version
+      const publicIdParts = urlParts.slice(uploadIndex + 2);
+      // Remove file extension
+      const publicId = publicIdParts.join('/').split('.')[0];
+      return publicId;
+    }
+  } catch (error) {
+    console.log('Error extracting public_id from URL:', error.message);
+  }
+  
+  return null;
+}
+
 // Helper function to hash password
 function hashPassword(password) {
   return bcrypt.hashSync(password, 10);
@@ -431,8 +456,34 @@ app.delete('/api/commissions/:id', authenticateToken, async (req, res) => {
     if (activeOrders > 0) {
       return res.status(400).json({ error: 'Không thể xóa commission đã có đơn hàng đang hoạt động' });
     }
+
+    // Delete related images from Cloudinary
+    try {
+      // Delete examples images
+      if (commission.examples && commission.examples.length > 0) {
+        for (const exampleUrl of commission.examples) {
+          const publicId = extractPublicIdFromCloudinaryUrl(exampleUrl);
+          if (publicId) {
+            try {
+              await cloudinary.uploader.destroy(publicId);
+              console.log(`Deleted image from Cloudinary: ${publicId}`);
+            } catch (cloudinaryError) {
+              console.log(`Could not delete image ${publicId} from Cloudinary:`, cloudinaryError.message);
+            }
+          }
+        }
+      }
+    } catch (imageError) {
+      console.log('Error deleting images from Cloudinary:', imageError.message);
+      // Continue with commission deletion even if image deletion fails
+    }
+
+    // Delete related orders
     await Order.deleteMany({ commission_id: commission._id });
+    
+    // Delete the commission
     await commission.deleteOne();
+    
     res.json({ message: 'Xóa commission thành công' });
   } catch (error) {
     res.status(500).json({ error: 'Lỗi server' });
@@ -690,6 +741,34 @@ app.delete('/api/upload/image/:public_id', authenticateToken, async (req, res) =
     }
   } catch (error) {
     console.error('Delete error:', error);
+    res.status(500).json({ error: 'Lỗi khi xóa hình ảnh' });
+  }
+});
+
+// Delete image from Cloudinary by URL
+app.delete('/api/upload/image-by-url', authenticateToken, async (req, res) => {
+  try {
+    const { imageUrl } = req.body;
+    
+    if (!imageUrl) {
+      return res.status(400).json({ error: 'Image URL is required' });
+    }
+    
+    const publicId = extractPublicIdFromCloudinaryUrl(imageUrl);
+    
+    if (!publicId) {
+      return res.status(400).json({ error: 'Invalid Cloudinary URL' });
+    }
+    
+    const result = await cloudinary.uploader.destroy(publicId);
+    
+    if (result.result === 'ok') {
+      res.json({ success: true, message: 'Xóa hình ảnh thành công', publicId });
+    } else {
+      res.status(400).json({ error: 'Không thể xóa hình ảnh' });
+    }
+  } catch (error) {
+    console.error('Delete image by URL error:', error);
     res.status(500).json({ error: 'Lỗi khi xóa hình ảnh' });
   }
 });
