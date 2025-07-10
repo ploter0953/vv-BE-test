@@ -40,14 +40,55 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-producti
 
 // Parse allowed origins from environment variable
 const getAllowedOrigins = () => {
-  return [
+  // Production origins
+  const productionOrigins = [
     'https://projectvtuber.com',
-    'https://www.projectvtuber.com',
+    'https://www.projectvtuber.com'
+  ];
+  
+  // Development origins
+  const developmentOrigins = [
     'http://localhost:3000',
     'http://localhost:5173',
     'https://localhost:3000',
-    'https://localhost:5173'
+    'https://localhost:5173',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:5173'
   ];
+  
+  // Combine based on environment
+  const isProduction = process.env.NODE_ENV === 'production';
+  return isProduction ? productionOrigins : [...productionOrigins, ...developmentOrigins];
+};
+
+// Enhanced origin validation middleware
+const validateOrigin = (req, res, next) => {
+  const origin = req.headers.origin;
+  const allowedOrigins = getAllowedOrigins();
+  
+  // Log origin for debugging
+  console.log(`Request origin: ${origin}`);
+  console.log(`Allowed origins: ${allowedOrigins.join(', ')}`);
+  
+  // Allow requests with no origin (like mobile apps or Postman)
+  if (!origin) {
+    console.log('No origin header - allowing request');
+    return next();
+  }
+  
+  // Check if origin is allowed
+  if (allowedOrigins.includes(origin)) {
+    console.log(`Origin ${origin} is allowed`);
+    return next();
+  }
+  
+  // Block unauthorized origin
+  console.log(`Origin ${origin} is NOT allowed - blocking request`);
+  return res.status(403).json({
+    error: 'Truy cập không được phép từ domain này',
+    message: 'Vui lòng truy cập từ domain chính thức: https://www.projectvtuber.com',
+    allowedOrigins: process.env.NODE_ENV === 'development' ? allowedOrigins : undefined
+  });
 };
 
 // Middleware to ensure JSON responses
@@ -66,27 +107,35 @@ app.use((req, res, next) => {
 // CORS configuration
 const corsOptions = {
   origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or Postman)
-    if (!origin) return callback(null, true);
     const allowedOrigins = getAllowedOrigins();
-    // Allow localhost for development
-    if (origin.startsWith('http://localhost:') || origin.startsWith('https://localhost:')) {
+    
+    // Allow requests with no origin (like mobile apps or Postman)
+    if (!origin) {
+      console.log('CORS: No origin - allowing request');
       return callback(null, true);
     }
-    // Only allow production domain
+    
+    // Check if origin is allowed
     if (allowedOrigins.includes(origin)) {
+      console.log(`CORS: Origin ${origin} is allowed`);
       return callback(null, true);
     }
-    console.log(`CORS blocked origin: ${origin}`);
-    console.log(`Allowed origins: ${allowedOrigins.join(', ')}`);
-    callback(null, false); // Block
+    
+    // Block unauthorized origin
+    console.log(`CORS: Origin ${origin} is NOT allowed - blocking request`);
+    console.log(`CORS: Allowed origins: ${allowedOrigins.join(', ')}`);
+    return callback(new Error('Truy cập không được phép từ domain này'), false);
   },
   credentials: true, // Enable credentials for cross-origin requests
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  optionsSuccessStatus: 200 // Some legacy browsers choke on 204
 };
 
 app.use(cors(corsOptions));
+
+// Apply origin validation middleware to all API routes
+app.use('/api', validateOrigin);
 app.use(express.json());
 
 // Handle CORS preflight requests
@@ -222,6 +271,30 @@ app.get('/api/test', (req, res) => {
     message: 'API is working!', 
     timestamp: new Date().toISOString(),
     version: '1.0.0'
+  });
+});
+
+// Health check endpoint with origin validation info
+app.get('/api/health', (req, res) => {
+  const origin = req.headers.origin;
+  const allowedOrigins = getAllowedOrigins();
+  const isProduction = process.env.NODE_ENV === 'production';
+  
+  res.json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    version: '1.0.0',
+    environment: isProduction ? 'production' : 'development',
+    origin: {
+      current: origin || 'No origin header',
+      allowed: allowedOrigins,
+      isValid: !origin || allowedOrigins.includes(origin)
+    },
+    cors: {
+      enabled: true,
+      credentials: true,
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
+    }
   });
 });
 
