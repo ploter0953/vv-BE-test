@@ -83,7 +83,15 @@ mongoose.connect(MONGODB_URI, {
 // Mongoose User model
 const userSchema = new mongoose.Schema({
   username: { type: String, unique: true },
-  password: String
+  email: { type: String, unique: true },
+  password: String,
+  avatar: { type: String, default: '' },
+  bio: String,
+  badge: String,
+  facebook: String,
+  zalo: String,
+  phone: String,
+  website: String
 });
 const User = mongoose.model('User', userSchema);
 
@@ -182,10 +190,16 @@ app.post('/api/auth/register', async (req, res) => {
       return res.status(400).json({ error: 'Mật khẩu phải có ít nhất 6 ký tự' });
     }
 
-    // Check if user already exists
-    const user = await User.findOne({ username });
-    if (user) {
+    // Check if user already exists by username
+    const existingUserByUsername = await User.findOne({ username });
+    if (existingUserByUsername) {
       return res.status(400).json({ error: 'Tên người dùng đã được sử dụng' });
+    }
+
+    // Check if user already exists by email
+    const existingUserByEmail = await User.findOne({ email });
+    if (existingUserByEmail) {
+      return res.status(400).json({ error: 'Email đã được sử dụng' });
     }
 
     // Create new user
@@ -206,6 +220,16 @@ app.post('/api/auth/register', async (req, res) => {
       token
     });
   } catch (error) {
+    console.error('Registration error:', error);
+    if (error.code === 11000) {
+      // Duplicate key error
+      if (error.keyPattern.username) {
+        return res.status(400).json({ error: 'Tên người dùng đã được sử dụng' });
+      }
+      if (error.keyPattern.email) {
+        return res.status(400).json({ error: 'Email đã được sử dụng' });
+      }
+    }
     res.status(500).json({ error: 'Lỗi server' });
   }
 });
