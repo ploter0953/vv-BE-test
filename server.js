@@ -7,6 +7,32 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
 const path = require('path');
+const cloudinary = require('cloudinary').v2;
+const multer = require('multer');
+
+// Cloudinary configuration
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
+});
+
+// Multer configuration for file uploads
+const storage = multer.memoryStorage();
+const upload = multer({ 
+  storage: storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    // Accept only images
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Chỉ chấp nhận file hình ảnh'), false);
+    }
+  }
+});
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -575,6 +601,96 @@ app.get('/api/orders', authenticateToken, async (req, res) => {
     res.json({ orders });
   } catch (error) {
     res.status(500).json({ error: 'Lỗi server' });
+  }
+});
+
+// Upload image to Cloudinary
+app.post('/api/upload/image', authenticateToken, upload.single('image'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Không có file được upload' });
+    }
+
+    // Convert buffer to base64
+    const b64 = Buffer.from(req.file.buffer).toString('base64');
+    const dataURI = `data:${req.file.mimetype};base64,${b64}`;
+
+    // Upload to Cloudinary
+    const result = await cloudinary.uploader.upload(dataURI, {
+      folder: 'vtuberverse',
+      resource_type: 'auto',
+      transformation: [
+        { quality: 'auto', fetch_format: 'auto' }
+      ]
+    });
+
+    res.json({
+      success: true,
+      url: result.secure_url,
+      public_id: result.public_id,
+      width: result.width,
+      height: result.height
+    });
+  } catch (error) {
+    console.error('Upload error:', error);
+    res.status(500).json({ error: 'Lỗi khi upload hình ảnh' });
+  }
+});
+
+// Upload multiple images to Cloudinary
+app.post('/api/upload/images', authenticateToken, upload.array('images', 10), async (req, res) => {
+  try {
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ error: 'Không có file được upload' });
+    }
+
+    const uploadPromises = req.files.map(async (file) => {
+      const b64 = Buffer.from(file.buffer).toString('base64');
+      const dataURI = `data:${file.mimetype};base64,${b64}`;
+
+      const result = await cloudinary.uploader.upload(dataURI, {
+        folder: 'vtuberverse',
+        resource_type: 'auto',
+        transformation: [
+          { quality: 'auto', fetch_format: 'auto' }
+        ]
+      });
+
+      return {
+        url: result.secure_url,
+        public_id: result.public_id,
+        width: result.width,
+        height: result.height
+      };
+    });
+
+    const results = await Promise.all(uploadPromises);
+
+    res.json({
+      success: true,
+      images: results
+    });
+  } catch (error) {
+    console.error('Upload error:', error);
+    res.status(500).json({ error: 'Lỗi khi upload hình ảnh' });
+  }
+});
+
+// Delete image from Cloudinary
+app.delete('/api/upload/image/:public_id', authenticateToken, async (req, res) => {
+  try {
+    const { public_id } = req.params;
+    
+    const result = await cloudinary.uploader.destroy(public_id);
+    
+    if (result.result === 'ok') {
+      res.json({ success: true, message: 'Xóa hình ảnh thành công' });
+    } else {
+      res.status(400).json({ error: 'Không thể xóa hình ảnh' });
+    }
+  } catch (error) {
+    console.error('Delete error:', error);
+    res.status(500).json({ error: 'Lỗi khi xóa hình ảnh' });
   }
 });
 
