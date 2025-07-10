@@ -506,8 +506,16 @@ app.post('/api/commissions/:id/order', authenticateToken, async (req, res) => {
       artist_id: commission.user_id,
       status: 'pending'
     });
-    commission.status = 'pending';
-    await commission.save();
+    // Commission stays 'open' until artist confirms the order
+    // Only change to 'pending' if this is the first order
+    const pendingOrders = await Order.countDocuments({ 
+      commission_id: commission._id, 
+      status: 'pending' 
+    });
+    if (pendingOrders === 1) {
+      commission.status = 'pending';
+      await commission.save();
+    }
     res.status(201).json({ message: 'Đặt commission thành công', orderId: order._id });
   } catch (error) {
     res.status(500).json({ error: 'Lỗi server' });
@@ -648,7 +656,10 @@ app.get('/api/orders', authenticateToken, async (req, res) => {
     } else {
       filter.customer_id = userId;
     }
-    const orders = await Order.find(filter).populate('commission_id');
+    const orders = await Order.find(filter)
+      .populate('commission_id')
+      .populate('customer_id', 'username email avatar')
+      .populate('artist_id', 'username email avatar');
     res.json({ orders });
   } catch (error) {
     res.status(500).json({ error: 'Lỗi server' });
