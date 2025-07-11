@@ -232,8 +232,9 @@ const userSchema = new mongoose.Schema({
   zalo: String,
   phone: String,
   website: String,
-  profile_email: { type: String, unique: true } // Added profile_email field
-});
+  profile_email: { type: String, unique: true }, // Added profile_email field
+  vote_bio: { type: String, default: '' } // Mô tả ngắn riêng cho mục vote
+}, { timestamps: true });
 const User = mongoose.model('User', userSchema);
 
 // Commission Schema
@@ -276,6 +277,15 @@ const voteSchema = new mongoose.Schema({
   created_at: { type: Date, default: Date.now }
 });
 const Vote = mongoose.model('Vote', voteSchema);
+
+// VoteSpotlight Schema for Spotlight voting (VTuber & Artist)
+const voteSpotlightSchema = new mongoose.Schema({
+  voter_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  voted_user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  type: { type: String, enum: ['vtuber', 'artist'], required: true },
+  created_at: { type: Date, default: Date.now }
+});
+const VoteSpotlight = mongoose.model('VoteSpotlight', voteSpotlightSchema);
 
 // Helper function to extract public_id from Cloudinary URL
 function extractPublicIdFromCloudinaryUrl(url) {
@@ -1073,86 +1083,132 @@ app.post('/api/vote/vtuber', authenticateToken, async (req, res) => {
   }
 });
 
-// Get VTuber spotlight (top 5 VTubers by votes)
-app.get('/api/spotlight/vtubers', async (req, res) => {
+// Vote for an Artist (1 vote per day per user)
+app.post('/api/vote/artist', authenticateToken, async (req, res) => {
   try {
-    // Get top 5 VTubers by vote count
-    const topVTubers = await Vote.aggregate([
-      {
-        $group: {
-          _id: '$voted_vtuber_id',
-          voteCount: { $sum: 1 }
-        }
-      },
-      {
-        $sort: { voteCount: -1 }
-      },
-      {
-        $limit: 5
-      },
-      {
-        $lookup: {
-          from: 'users',
-          localField: '_id',
-          foreignField: '_id',
-          as: 'vtuber'
-        }
-      },
-      {
-        $unwind: '$vtuber'
-      },
-      {
-        $match: {
-          'vtuber.badges': { $in: ['vtuber'] }
-        }
-      },
-      {
-        $project: {
-          _id: 1,
-          voteCount: 1,
-          username: '$vtuber.username',
-          avatar: '$vtuber.avatar',
-          bio: '$vtuber.bio'
-        }
-      }
-    ]);
-
-    res.json({
-      spotlight: topVTubers
-    });
-
-  } catch (error) {
-    console.error('Spotlight error:', error);
-    res.status(500).json({ error: 'Lỗi server' });
-  }
-});
-
-// Get user's vote status for today
-app.get('/api/vote/status', authenticateToken, async (req, res) => {
-  try {
+    const { voted_artist_id } = req.body;
     const voter_id = req.user.id;
-    
+    if (!voted_artist_id) {
+      return res.status(400).json({ error: 'Vui lòng chọn Artist để vote' });
+    }
+    // Check if voted user exists and has Artist badge (verified, trusted, quality, partner)
+    const votedUser = await User.findById(voted_artist_id);
+    if (!votedUser) {
+      return res.status(404).json({ error: 'Artist không tồn tại' });
+    }
+    const validArtistBadges = ['verified', 'trusted', 'quality', 'partner'];
+    if (!votedUser.badges || !votedUser.badges.some(b => validArtistBadges.includes(b))) {
+      return res.status(400).json({ error: 'Chỉ có thể vote cho user là Artist hợp lệ' });
+    }
+    if (voter_id === voted_artist_id) {
+      return res.status(400).json({ error: 'Không thể vote cho chính mình' });
+    }
+    // Check if user has already voted for Artist today
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
-
-    const todayVote = await Vote.findOne({
+    const existingVote = await VoteSpotlight.findOne({
       voter_id,
-      created_at: {
-        $gte: today,
-        $lt: tomorrow
-      }
-    }).populate('voted_vtuber_id', 'username avatar');
-
-    res.json({
-      hasVotedToday: !!todayVote,
-      todayVote: todayVote ? {
-        voted_vtuber: todayVote.voted_vtuber_id,
-        created_at: todayVote.created_at
-      } : null
+      type: 'artist',
+      created_at: { $gte: today, $lt: tomorrow }
     });
+    if (existingVote) {
+      return res.status(400).json({ error: 'Bạn đã vote Artist hôm nay. Vui lòng thử lại vào ngày mai' });
+    }
+    // Create new vote
+    const newVote = await VoteSpotlight.create({
+      voter_id,
+      voted_user_id: voted_artist_id,
+      type: 'artist',
+      created_at: new Date()
+    });
+    res.status(201).json({ message: 'Vote Artist thành công!', vote: newVote });
+  } catch (error) {
+    console.error('Vote Artist error:', error);
+    res.status(500).json({ error: 'Lỗi server' });
+  }
+});
 
+// Get VTuber spotlight (top 5 VTubers by votes)
+app.get('/api/spotlight/vtubers', async (req, res) => {
+  try {
+    // Get top 5 VTubers by vote count
+    const topVTubers = await VoteSpotlight.aggregate([
+      { $match: { type: 'vtuber' } },
+      { $group: { _id: '$voted_user_id', voteCount: { $sum: 1 } } },
+      { $sort: { voteCount: -1 } },
+      { $limit: 5 },
+      { $lookup: { from: 'users', localField: '_id', foreignField: '_id', as: 'vtuber' } },
+      { $unwind: '$vtuber' },
+      { $match: { 'vtuber.badges': { $in: ['vtuber'] } } },
+      { $project: { _id: 1, voteCount: 1, username: '$vtuber.username', avatar: '$vtuber.avatar', bio: '$vtuber.bio' } }
+    ]);
+    res.json({ spotlight: topVTubers });
+  } catch (error) {
+    console.error('Spotlight VTuber error:', error);
+    res.status(500).json({ error: 'Lỗi server' });
+  }
+});
+
+// Get Artist spotlight (top 5 Artists by votes)
+app.get('/api/spotlight/artists', async (req, res) => {
+  try {
+    // Get top 5 Artists by vote count
+    const validArtistBadges = ['verified', 'trusted', 'quality', 'partner'];
+    const topArtists = await VoteSpotlight.aggregate([
+      { $match: { type: 'artist' } },
+      { $group: { _id: '$voted_user_id', voteCount: { $sum: 1 } } },
+      { $sort: { voteCount: -1 } },
+      { $limit: 5 },
+      { $lookup: { from: 'users', localField: '_id', foreignField: '_id', as: 'artist' } },
+      { $unwind: '$artist' },
+      { $match: { 'artist.badges': { $in: validArtistBadges } } },
+      { $project: { _id: 1, voteCount: 1, username: '$artist.username', avatar: '$artist.avatar', bio: '$artist.bio' } }
+    ]);
+    res.json({ spotlight: topArtists });
+  } catch (error) {
+    console.error('Spotlight Artist error:', error);
+    res.status(500).json({ error: 'Lỗi server' });
+  }
+});
+
+// Get user's vote status for today (both vtuber & artist)
+app.get('/api/vote/status', authenticateToken, async (req, res) => {
+  try {
+    const voter_id = req.user.id;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    // VTuber vote status
+    const vtuberVote = await VoteSpotlight.findOne({
+      voter_id,
+      type: 'vtuber',
+      created_at: { $gte: today, $lt: tomorrow }
+    }).populate('voted_user_id', 'username avatar');
+    // Artist vote status
+    const artistVote = await VoteSpotlight.findOne({
+      voter_id,
+      type: 'artist',
+      created_at: { $gte: today, $lt: tomorrow }
+    }).populate('voted_user_id', 'username avatar');
+    res.json({
+      vtuber: {
+        hasVotedToday: !!vtuberVote,
+        todayVote: vtuberVote ? {
+          voted_user: vtuberVote.voted_user_id,
+          created_at: vtuberVote.created_at
+        } : null
+      },
+      artist: {
+        hasVotedToday: !!artistVote,
+        todayVote: artistVote ? {
+          voted_user: artistVote.voted_user_id,
+          created_at: artistVote.created_at
+        } : null
+      }
+    });
   } catch (error) {
     console.error('Vote status error:', error);
     res.status(500).json({ error: 'Lỗi server' });
@@ -1163,7 +1219,7 @@ app.get('/api/vote/status', authenticateToken, async (req, res) => {
 app.get('/api/vtubers', async (req, res) => {
   try {
     const vtubers = await User.find({ badges: { $in: ['vtuber'] } })
-      .select('username avatar bio')
+      .select('username avatar bio vote_bio')
       .sort({ username: 1 });
 
     res.json({
