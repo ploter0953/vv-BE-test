@@ -622,8 +622,8 @@ app.put('/api/orders/:id/complete', authenticateToken, async (req, res) => {
     if (order.artist_id.toString() !== req.user.id) {
       return res.status(403).json({ error: 'Không có quyền hoàn thành đơn hàng này' });
     }
-    if (order.status !== 'confirmed') {
-      return res.status(400).json({ error: 'Đơn hàng chưa được xác nhận' });
+    if (order.status !== 'confirmed' && order.status !== 'customer_rejected') {
+      return res.status(400).json({ error: 'Đơn hàng chưa được xác nhận hoặc không thể hoàn thành' });
     }
     order.status = 'waiting_customer_confirmation';
     order.completed_at = new Date();
@@ -708,6 +708,80 @@ app.put('/api/orders/:id/reject', authenticateToken, async (req, res) => {
     commission.status = 'in_progress';
     await commission.save();
     res.json({ message: 'Đã từ chối xác nhận hoàn thành. Artist sẽ được thông báo để chỉnh sửa.' });
+  } catch (error) {
+    res.status(500).json({ error: 'Lỗi server' });
+  }
+});
+
+// Artist rejects order
+app.put('/api/orders/:id/artist-reject', authenticateToken, async (req, res) => {
+  try {
+    const { rejection_reason } = req.body;
+    const order = await Order.findById(req.params.id).populate('commission_id');
+    if (!order) return res.status(404).json({ error: 'Đơn hàng không tồn tại' });
+    if (order.artist_id.toString() !== req.user.id) {
+      return res.status(403).json({ error: 'Không có quyền từ chối đơn hàng này' });
+    }
+    if (order.status !== 'pending' && order.status !== 'confirmed') {
+      return res.status(400).json({ error: 'Không thể từ chối đơn hàng ở trạng thái này' });
+    }
+    order.status = 'artist_rejected';
+    order.rejection_reason = rejection_reason || 'Artist từ chối thực hiện đơn hàng';
+    await order.save();
+    
+    // Check if commission should be reopened
+    const activeOrders = await Order.countDocuments({ 
+      commission_id: order.commission_id._id, 
+      status: { $in: ['pending', 'confirmed', 'waiting_customer_confirmation', 'customer_rejected'] } 
+    });
+    
+    if (activeOrders === 0) {
+      const commission = order.commission_id;
+      commission.status = 'open';
+      await commission.save();
+    }
+    
+    res.json({ message: 'Đã từ chối đơn hàng. Commission sẽ được mở lại nếu không còn đơn hàng nào.' });
+  } catch (error) {
+    res.status(500).json({ error: 'Lỗi server' });
+  }
+});
+
+// Auto-cancel pending orders after 7 days (optional endpoint for cleanup)
+app.put('/api/orders/auto-cancel-pending', async (req, res) => {
+  try {
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    
+    // Find pending orders older than 7 days
+    const pendingOrders = await Order.find({
+      status: 'pending',
+      created_at: { $lt: sevenDaysAgo }
+    }).populate('commission_id');
+    
+    let cancelledCount = 0;
+    
+    for (const order of pendingOrders) {
+      order.status = 'cancelled';
+      await order.save();
+      cancelledCount++;
+      
+      // Check if commission should be reopened
+      const activeOrders = await Order.countDocuments({ 
+        commission_id: order.commission_id._id, 
+        status: { $in: ['pending', 'confirmed', 'waiting_customer_confirmation', 'customer_rejected'] } 
+      });
+      
+      if (activeOrders === 0) {
+        const commission = order.commission_id;
+        commission.status = 'open';
+        await commission.save();
+      }
+    }
+    
+    res.json({ 
+      message: `Đã tự động hủy ${cancelledCount} đơn hàng chờ xác nhận quá 7 ngày`,
+      cancelledCount 
+    });
   } catch (error) {
     res.status(500).json({ error: 'Lỗi server' });
   }
