@@ -155,6 +155,7 @@ const userSchema = new mongoose.Schema({
   username: { type: String, unique: true },
   email: { type: String, unique: true },
   password: String,
+  role: { type: String, enum: ['user', 'admin', 'artist'], default: 'user' },
   avatar: { type: String, default: '' },
   bio: String,
   badge: String,
@@ -198,6 +199,14 @@ const orderSchema = new mongoose.Schema({
   rejection_reason: String
 });
 const Order = mongoose.model('Order', orderSchema);
+
+// Vote Schema for VTuber voting
+const voteSchema = new mongoose.Schema({
+  voter_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  voted_vtuber_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  created_at: { type: Date, default: Date.now }
+});
+const Vote = mongoose.model('Vote', voteSchema);
 
 // Helper function to extract public_id from Cloudinary URL
 function extractPublicIdFromCloudinaryUrl(url) {
@@ -924,6 +933,170 @@ app.delete('/api/upload/image-by-url', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Delete image by URL error:', error);
     res.status(500).json({ error: 'Lỗi khi xóa hình ảnh' });
+  }
+});
+
+// Vote for a VTuber (1 vote per day per user)
+app.post('/api/vote/vtuber', authenticateToken, async (req, res) => {
+  try {
+    const { voted_vtuber_id } = req.body;
+    const voter_id = req.user.id;
+
+    if (!voted_vtuber_id) {
+      return res.status(400).json({ error: 'Vui lòng chọn VTuber để vote' });
+    }
+
+    // Check if voted user exists and has VTuber badge
+    const votedUser = await User.findById(voted_vtuber_id);
+    if (!votedUser) {
+      return res.status(404).json({ error: 'VTuber không tồn tại' });
+    }
+
+    if (votedUser.badge !== 'vtuber') {
+      return res.status(400).json({ error: 'Chỉ có thể vote cho user có badge VTuber' });
+    }
+
+    // Check if voter is trying to vote for themselves
+    if (voter_id === voted_vtuber_id) {
+      return res.status(400).json({ error: 'Không thể vote cho chính mình' });
+    }
+
+    // Check if user has already voted today
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const existingVote = await Vote.findOne({
+      voter_id,
+      created_at: {
+        $gte: today,
+        $lt: tomorrow
+      }
+    });
+
+    if (existingVote) {
+      return res.status(400).json({ error: 'Bạn đã vote hôm nay. Vui lòng thử lại vào ngày mai' });
+    }
+
+    // Create new vote
+    const newVote = await Vote.create({
+      voter_id,
+      voted_vtuber_id,
+      created_at: new Date()
+    });
+
+    res.status(201).json({
+      message: 'Vote thành công!',
+      vote: newVote
+    });
+
+  } catch (error) {
+    console.error('Vote error:', error);
+    res.status(500).json({ error: 'Lỗi server' });
+  }
+});
+
+// Get VTuber spotlight (top 5 VTubers by votes)
+app.get('/api/spotlight/vtubers', async (req, res) => {
+  try {
+    // Get top 5 VTubers by vote count
+    const topVTubers = await Vote.aggregate([
+      {
+        $group: {
+          _id: '$voted_vtuber_id',
+          voteCount: { $sum: 1 }
+        }
+      },
+      {
+        $sort: { voteCount: -1 }
+      },
+      {
+        $limit: 5
+      },
+      {
+        $lookup: {
+          from: 'users',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'vtuber'
+        }
+      },
+      {
+        $unwind: '$vtuber'
+      },
+      {
+        $match: {
+          'vtuber.badge': 'vtuber'
+        }
+      },
+      {
+        $project: {
+          _id: 1,
+          voteCount: 1,
+          username: '$vtuber.username',
+          avatar: '$vtuber.avatar',
+          bio: '$vtuber.bio'
+        }
+      }
+    ]);
+
+    res.json({
+      spotlight: topVTubers
+    });
+
+  } catch (error) {
+    console.error('Spotlight error:', error);
+    res.status(500).json({ error: 'Lỗi server' });
+  }
+});
+
+// Get user's vote status for today
+app.get('/api/vote/status', authenticateToken, async (req, res) => {
+  try {
+    const voter_id = req.user.id;
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const todayVote = await Vote.findOne({
+      voter_id,
+      created_at: {
+        $gte: today,
+        $lt: tomorrow
+      }
+    }).populate('voted_vtuber_id', 'username avatar');
+
+    res.json({
+      hasVotedToday: !!todayVote,
+      todayVote: todayVote ? {
+        voted_vtuber: todayVote.voted_vtuber_id,
+        created_at: todayVote.created_at
+      } : null
+    });
+
+  } catch (error) {
+    console.error('Vote status error:', error);
+    res.status(500).json({ error: 'Lỗi server' });
+  }
+});
+
+// Get all VTubers (users with vtuber badge)
+app.get('/api/vtubers', async (req, res) => {
+  try {
+    const vtubers = await User.find({ badge: 'vtuber' })
+      .select('username avatar bio')
+      .sort({ username: 1 });
+
+    res.json({
+      vtubers
+    });
+
+  } catch (error) {
+    console.error('Get VTubers error:', error);
+    res.status(500).json({ error: 'Lỗi server' });
   }
 });
 
