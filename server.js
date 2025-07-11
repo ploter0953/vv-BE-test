@@ -161,7 +161,8 @@ const userSchema = new mongoose.Schema({
   facebook: String,
   zalo: String,
   phone: String,
-  website: String
+  website: String,
+  profile_email: { type: String, unique: true } // Added profile_email field
 });
 const User = mongoose.model('User', userSchema);
 
@@ -800,8 +801,8 @@ app.get('/api/orders', authenticateToken, async (req, res) => {
     }
     const orders = await Order.find(filter)
       .populate('commission_id')
-      .populate('customer_id', 'username email avatar')
-      .populate('artist_id', 'username email avatar');
+      .populate('customer_id', 'username avatar profile_email')
+      .populate('artist_id', 'username avatar profile_email');
     res.json({ orders });
   } catch (error) {
     res.status(500).json({ error: 'Lỗi server' });
