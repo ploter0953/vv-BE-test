@@ -226,7 +226,8 @@ const userSchema = new mongoose.Schema({
   role: { type: String, enum: ['user', 'admin', 'artist'], default: 'user' },
   avatar: { type: String, default: '' },
   bio: String,
-  badge: String,
+  badge: String, // Keep for backward compatibility
+  badges: { type: [String], default: ['member'] }, // New field for multiple badges
   facebook: String,
   zalo: String,
   phone: String,
@@ -403,7 +404,13 @@ app.post('/api/auth/register', async (req, res) => {
     const hashedPassword = hashPassword(password);
     const avatar = '';
 
-    const newUser = await User.create({ username, email, password: hashedPassword, avatar });
+    const newUser = await User.create({ 
+      username, 
+      email, 
+      password: hashedPassword, 
+      avatar,
+      badges: ['member'] // Default badge for new users
+    });
 
     const token = generateToken(newUser);
     res.status(201).json({
@@ -504,7 +511,7 @@ app.get('/api/users/:id', async (req, res) => {
 // Update user profile
 app.put('/api/users/:id', authenticateToken, async (req, res) => {
   const userId = req.params.id;
-  const { avatar, bio, badge, facebook, zalo, phone, website } = req.body;
+  const { avatar, bio, facebook, zalo, phone, website, profile_email } = req.body;
 
   // Check if user is updating their own profile
   if (userId !== req.user.id.toString()) {
@@ -519,11 +526,12 @@ app.put('/api/users/:id', authenticateToken, async (req, res) => {
 
     user.avatar = avatar;
     user.bio = bio;
-    user.badge = badge;
+    // user.badge and user.badges are NOT allowed to be updated by user - only admin can change badges
     user.facebook = facebook;
     user.zalo = zalo;
     user.phone = phone;
     user.website = website;
+    user.profile_email = profile_email;
 
     await user.save();
     res.json({ message: 'Cập nhật profile thành công' });
@@ -1020,7 +1028,7 @@ app.post('/api/vote/vtuber', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'VTuber không tồn tại' });
     }
 
-    if (votedUser.badge !== 'vtuber') {
+    if (!votedUser.badges || !votedUser.badges.includes('vtuber')) {
       return res.status(400).json({ error: 'Chỉ có thể vote cho user có badge VTuber' });
     }
 
@@ -1095,7 +1103,7 @@ app.get('/api/spotlight/vtubers', async (req, res) => {
       },
       {
         $match: {
-          'vtuber.badge': 'vtuber'
+          'vtuber.badges': { $in: ['vtuber'] }
         }
       },
       {
@@ -1154,7 +1162,7 @@ app.get('/api/vote/status', authenticateToken, async (req, res) => {
 // Get all VTubers (users with vtuber badge)
 app.get('/api/vtubers', async (req, res) => {
   try {
-    const vtubers = await User.find({ badge: 'vtuber' })
+    const vtubers = await User.find({ badges: { $in: ['vtuber'] } })
       .select('username avatar bio')
       .sort({ username: 1 });
 
