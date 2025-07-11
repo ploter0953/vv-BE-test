@@ -40,20 +40,13 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-producti
 
 // Parse allowed origins from environment variable
 const getAllowedOrigins = () => {
-  // Production origins
-  const productionOrigins = [
+  // Only allow official domain
+  const allowedOrigins = [
     'https://projectvtuber.com',
     'https://www.projectvtuber.com'
   ];
   
-  // Development origins
-  const developmentOrigins = [
-    'https://www.projectvtuber.com'
-  ];
-  
-  // Combine based on environment
-  const isProduction = process.env.NODE_ENV === 'production';
-  return isProduction ? productionOrigins : [...productionOrigins, ...developmentOrigins];
+  return allowedOrigins;
 };
 
 // Enhanced origin validation middleware
