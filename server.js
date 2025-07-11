@@ -287,6 +287,15 @@ const voteSpotlightSchema = new mongoose.Schema({
 });
 const VoteSpotlight = mongoose.model('VoteSpotlight', voteSpotlightSchema);
 
+// Feedback Schema
+const feedbackSchema = new mongoose.Schema({
+  user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  email: String,
+  message: String,
+  created_at: { type: Date, default: Date.now }
+});
+const Feedback = mongoose.model('Feedback', feedbackSchema);
+
 // Helper function to extract public_id from Cloudinary URL
 function extractPublicIdFromCloudinaryUrl(url) {
   if (!url || !url.includes('cloudinary.com')) {
@@ -464,13 +473,16 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Email/Username hoặc mật khẩu không đúng' });
     }
     const token = generateToken(user);
+    // Always return badges (array) and badge (string) for compatibility
     res.json({
       message: 'Đăng nhập thành công',
       user: {
         id: user._id,
         username: user.username,
         email: user.email,
-        avatar: user.avatar
+        avatar: user.avatar,
+        badge: user.badge || (user.badges && user.badges[0]) || 'member',
+        badges: user.badges && user.badges.length > 0 ? user.badges : (user.badge ? [user.badge] : ['member'])
       },
       token
     });
@@ -486,7 +498,14 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
     if (!user) {
       return res.status(404).json({ error: 'Người dùng không tồn tại' });
     }
-    res.json({ user });
+    res.json({ user: {
+      id: user._id,
+      username: user.username,
+      email: user.email,
+      avatar: user.avatar,
+      badge: user.badge || (user.badges && user.badges[0]) || 'member',
+      badges: user.badges && user.badges.length > 0 ? user.badges : (user.badge ? [user.badge] : ['member'])
+    }});
   } catch (error) {
     res.status(500).json({ error: 'Lỗi server' });
   }
@@ -511,8 +530,14 @@ app.get('/api/users/:id', async (req, res) => {
     if (!user) {
       return res.status(404).json({ error: 'Người dùng không tồn tại' });
     }
-
-    res.json({ user });
+    res.json({ user: {
+      id: user._id,
+      username: user.username,
+      email: user.email,
+      avatar: user.avatar,
+      badge: user.badge || (user.badges && user.badges[0]) || 'member',
+      badges: user.badges && user.badges.length > 0 ? user.badges : (user.badge ? [user.badge] : ['member'])
+    }});
   } catch (error) {
     return res.status(500).json({ error: 'Lỗi server' });
   }
@@ -1228,6 +1253,38 @@ app.get('/api/vtubers', async (req, res) => {
 
   } catch (error) {
     console.error('Get VTubers error:', error);
+    res.status(500).json({ error: 'Lỗi server' });
+  }
+});
+
+// POST /api/feedback - Save feedback
+app.post('/api/feedback', authenticateToken, async (req, res) => {
+  try {
+    const { message } = req.body;
+    if (!message || typeof message !== 'string' || message.trim().length === 0) {
+      return res.status(400).json({ error: 'Nội dung feedback không hợp lệ' });
+    }
+    const user = await User.findById(req.user.id);
+    const feedback = await Feedback.create({
+      user_id: user._id,
+      email: user.email,
+      message: message.trim()
+    });
+    res.status(201).json({ message: 'Gửi feedback thành công', feedback });
+  } catch (error) {
+    res.status(500).json({ error: 'Lỗi server' });
+  }
+});
+// GET /api/feedback - Get all feedback (admin email only)
+app.get('/api/feedback', authenticateToken, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user || user.email !== 'huynguyen86297@gmail.com') {
+      return res.status(403).json({ error: 'Không có quyền truy cập feedback' });
+    }
+    const feedbacks = await Feedback.find({}).sort({ created_at: -1 }).populate('user_id', 'username email avatar');
+    res.json({ feedbacks });
+  } catch (error) {
     res.status(500).json({ error: 'Lỗi server' });
   }
 });
