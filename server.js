@@ -334,7 +334,7 @@ function comparePassword(password, hashedPassword) {
 // Helper function to generate JWT token
 function generateToken(user) {
   return jwt.sign(
-    { id: user.id, username: user.username, email: user.email },
+    { id: user._id, username: user.username, email: user.email },
     JWT_SECRET,
     { expiresIn: '7d' }
   );
@@ -1090,8 +1090,9 @@ app.post('/api/vote/vtuber', authenticateToken, async (req, res) => {
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    const existingVote = await Vote.findOne({
+    const existingVote = await VoteSpotlight.findOne({
       voter_id,
+      type: 'vtuber',
       created_at: {
         $gte: today,
         $lt: tomorrow
@@ -1103,9 +1104,10 @@ app.post('/api/vote/vtuber', authenticateToken, async (req, res) => {
     }
 
     // Create new vote
-    const newVote = await Vote.create({
+    const newVote = await VoteSpotlight.create({
       voter_id,
-      voted_vtuber_id,
+      voted_user_id: voted_vtuber_id,
+      type: 'vtuber',
       created_at: new Date()
     });
 
