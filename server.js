@@ -232,7 +232,9 @@ const userSchema = new mongoose.Schema({
   zalo: String,
   phone: String,
   website: String,
-  profile_email: { type: String, unique: true, sparse: true } // Added profile_email field with sparse unique index
+  profile_email: { type: String, unique: true, sparse: true }, // Only one profile_email field
+  vtuber_description: String,
+  artist_description: String
 });
 const User = mongoose.model('User', userSchema);
 
@@ -849,25 +851,23 @@ app.put('/api/orders/:id/artist-reject', authenticateToken, async (req, res) => 
     if (order.artist_id.toString() !== req.user.id) {
       return res.status(403).json({ error: 'Không có quyền từ chối đơn hàng này' });
     }
-    if (order.status !== 'pending' && order.status !== 'confirmed') {
+    // Allow artist to reject in pending, confirmed, or waiting_customer_confirmation
+    if (!["pending", "confirmed", "waiting_customer_confirmation"].includes(order.status)) {
       return res.status(400).json({ error: 'Không thể từ chối đơn hàng ở trạng thái này' });
     }
     order.status = 'artist_rejected';
     order.rejection_reason = rejection_reason || 'Artist từ chối thực hiện đơn hàng';
     await order.save();
-    
     // Check if commission should be reopened
     const activeOrders = await Order.countDocuments({ 
       commission_id: order.commission_id._id, 
       status: { $in: ['pending', 'confirmed', 'waiting_customer_confirmation', 'customer_rejected'] } 
     });
-    
     if (activeOrders === 0) {
       const commission = order.commission_id;
       commission.status = 'open';
       await commission.save();
     }
-    
     res.json({ message: 'Đã từ chối đơn hàng. Commission sẽ được mở lại nếu không còn đơn hàng nào.' });
   } catch (error) {
     res.status(500).json({ error: 'Lỗi server' });
@@ -1362,7 +1362,7 @@ app.get('/api/users/vote', async (req, res) => {
       if (badge === 'vtuber') {
         query.badges = { $in: ['vtuber'] };
       } else if (badge === 'artist') {
-        query.badges = { $in: ['verified', 'trusted', 'quality', 'partner'] };
+        query.badges = { $in: ['verified'] };
       }
     }
 
