@@ -129,41 +129,6 @@ app.use(cors(corsOptions));
 // Apply origin validation middleware to all API routes
 app.use('/api', validateOrigin);
 
-// Additional security: Check Referer header for API routes
-app.use('/api', (req, res, next) => {
-  const referer = req.headers.referer;
-  const allowedOrigins = getAllowedOrigins();
-  
-  // Skip referer check for OPTIONS requests (preflight)
-  if (req.method === 'OPTIONS') {
-    return next();
-  }
-  
-  // Block requests without referer (direct API access)
-  if (!referer) {
-    console.log('No referer header - BLOCKING request (direct API access not allowed)');
-    return res.status(403).json({
-      error: 'Truy cập trực tiếp API không được phép',
-      message: 'Vui lòng truy cập từ domain chính thức: https://www.projectvtuber.com'
-    });
-  }
-  
-  // Check if referer is from allowed domain
-  const refererUrl = new URL(referer);
-  const refererOrigin = refererUrl.origin;
-  
-  if (!allowedOrigins.includes(refererOrigin)) {
-    console.log(`Referer ${refererOrigin} is NOT allowed - blocking request`);
-    return res.status(403).json({
-      error: 'Truy cập không được phép từ domain này',
-      message: 'Vui lòng truy cập từ domain chính thức: https://www.projectvtuber.com'
-    });
-  }
-  
-  console.log(`Referer ${refererOrigin} is allowed`);
-  next();
-});
-
 // Additional security: Block common API testing tools
 app.use('/api', (req, res, next) => {
   const userAgent = req.headers['user-agent'] || '';
@@ -173,8 +138,6 @@ app.use('/api', (req, res, next) => {
     'curl',
     'wget',
     'python-requests',
-    'axios',
-    'fetch',
     'httpie',
     'thunder client',
     'rest client'
@@ -207,6 +170,7 @@ app.options('*', cors(corsOptions));
 // Specific OPTIONS routes for main endpoints
 app.options('/api/commissions', cors(corsOptions));
 app.options('/api/users', cors(corsOptions));
+app.options('/api/users/vote', cors(corsOptions));
 app.options('/api/auth/*', cors(corsOptions));
 app.options('/api/orders', cors(corsOptions));
 
@@ -1327,47 +1291,101 @@ app.get('/api/vtubers', async (req, res) => {
 // Get all users for voting (with optional badge filter)
 app.get('/api/users/vote', async (req, res) => {
   try {
+    console.log('=== /api/users/vote API called ===');
     const { badge } = req.query;
-    console.log('Vote API called with badge:', badge);
+    console.log('Query badge parameter:', badge);
     
     let filter = {};
     
     if (badge) {
       // Filter users who have the specified badge in their badges array
       filter.badges = { $in: [badge] };
-      console.log('Filter applied:', filter);
+      console.log('Filter applied:', JSON.stringify(filter));
+    } else {
+      console.log('No badge filter - getting all users');
     }
     
     // First, let's check if the User model and collection exist
+    console.log('Checking database connection...');
     const userCount = await User.countDocuments();
     console.log('Total users in database:', userCount);
     
+    if (userCount === 0) {
+      console.log('No users found in database');
+      return res.json({ users: [] });
+    }
+    
     // Check a sample user to see the structure
+    console.log('Checking sample user structure...');
     const sampleUser = await User.findOne();
     if (sampleUser) {
       console.log('Sample user structure:', {
         id: sampleUser._id,
         username: sampleUser.username,
         badges: sampleUser.badges,
-        badge: sampleUser.badge
+        badge: sampleUser.badge,
+        hasBadgesField: 'badges' in sampleUser,
+        badgesType: typeof sampleUser.badges,
+        isBadgesArray: Array.isArray(sampleUser.badges)
       });
+    } else {
+      console.log('No sample user found');
     }
     
+    // Check if any users have invalid badges field
+    console.log('Checking for users with invalid badges field...');
+    const usersWithInvalidBadges = await User.find({
+      $or: [
+        { badges: { $exists: false } },
+        { badges: null },
+        { badges: { $type: "string" } } // badges is string instead of array
+      ]
+    }).select('username badges badge');
+    
+    if (usersWithInvalidBadges.length > 0) {
+      console.log('Found users with invalid badges field:', usersWithInvalidBadges.length);
+      usersWithInvalidBadges.forEach(user => {
+        console.log('Invalid user:', {
+          username: user.username,
+          badges: user.badges,
+          badge: user.badge
+        });
+      });
+    } else {
+      console.log('All users have valid badges field');
+    }
+    
+    console.log('Executing main query with filter:', JSON.stringify(filter));
     const users = await User.find(filter)
       .select('username avatar bio vote_bio badge badges vtuber_description artist_description facebook website')
       .sort({ username: 1 });
 
-    console.log('Found users:', users.length);
+    console.log('Query successful, found users:', users.length);
+    
+    // Log first few users for debugging
+    if (users.length > 0) {
+      console.log('First 3 users:', users.slice(0, 3).map(u => ({
+        username: u.username,
+        badges: u.badges,
+        hasAvatar: !!u.avatar
+      })));
+    }
+    
     res.json({
       users
     });
 
   } catch (error) {
-    console.error('Get users for vote error:', error);
+    console.error('=== /api/users/vote ERROR ===');
+    console.error('Error message:', error.message);
+    console.error('Error name:', error.name);
     console.error('Error stack:', error.stack);
+    console.error('Full error object:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
+    
     res.status(500).json({ 
       error: 'Lỗi server',
       details: error.message,
+      name: error.name,
       stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
