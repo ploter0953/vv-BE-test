@@ -1328,24 +1328,48 @@ app.get('/api/vtubers', async (req, res) => {
 app.get('/api/users/vote', async (req, res) => {
   try {
     const { badge } = req.query;
+    console.log('Vote API called with badge:', badge);
+    
     let filter = {};
     
     if (badge) {
       // Filter users who have the specified badge in their badges array
       filter.badges = { $in: [badge] };
+      console.log('Filter applied:', filter);
+    }
+    
+    // First, let's check if the User model and collection exist
+    const userCount = await User.countDocuments();
+    console.log('Total users in database:', userCount);
+    
+    // Check a sample user to see the structure
+    const sampleUser = await User.findOne();
+    if (sampleUser) {
+      console.log('Sample user structure:', {
+        id: sampleUser._id,
+        username: sampleUser.username,
+        badges: sampleUser.badges,
+        badge: sampleUser.badge
+      });
     }
     
     const users = await User.find(filter)
       .select('username avatar bio vote_bio badge badges vtuber_description artist_description facebook website')
       .sort({ username: 1 });
 
+    console.log('Found users:', users.length);
     res.json({
       users
     });
 
   } catch (error) {
     console.error('Get users for vote error:', error);
-    res.status(500).json({ error: 'Lỗi server' });
+    console.error('Error stack:', error.stack);
+    res.status(500).json({ 
+      error: 'Lỗi server',
+      details: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 });
 
