@@ -233,7 +233,9 @@ const userSchema = new mongoose.Schema({
   phone: String,
   website: String,
   profile_email: { type: String, unique: true }, // Added profile_email field
-  vote_bio: { type: String, default: '' } // Mô tả ngắn riêng cho mục vote
+  vote_bio: { type: String, default: '' }, // Mô tả ngắn riêng cho mục vote
+  vtuber_description: String, // Added vtuber_description
+  artist_description: String // Added artist_description
 }, { timestamps: true });
 const User = mongoose.model('User', userSchema);
 
@@ -505,8 +507,6 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
       avatar: user.avatar,
       bio: user.bio,
       facebook: user.facebook,
-      zalo: user.zalo,
-      phone: user.phone,
       website: user.website,
       profile_email: user.profile_email,
       badge: user.badge || (user.badges && user.badges[0]) || 'member',
@@ -543,10 +543,10 @@ app.get('/api/users/:id', async (req, res) => {
       avatar: user.avatar,
       bio: user.bio,
       facebook: user.facebook,
-      zalo: user.zalo,
-      phone: user.phone,
       website: user.website,
       profile_email: user.profile_email,
+      vtuber_description: user.vtuber_description,
+      artist_description: user.artist_description,
       badge: user.badge || (user.badges && user.badges[0]) || 'member',
       badges: user.badges && user.badges.length > 0 ? user.badges : (user.badge ? [user.badge] : ['member'])
     }});
@@ -558,7 +558,7 @@ app.get('/api/users/:id', async (req, res) => {
 // Update user profile
 app.put('/api/users/:id', authenticateToken, async (req, res) => {
   const userId = req.params.id;
-  const { avatar, bio, facebook, zalo, phone, website, profile_email } = req.body;
+  const { avatar, bio, facebook, website, profile_email, vtuber_description, artist_description } = req.body;
 
   // Check if user is updating their own profile
   if (userId !== req.user.id.toString()) {
@@ -571,14 +571,32 @@ app.put('/api/users/:id', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Người dùng không tồn tại' });
     }
 
+    // Check badge permissions for descriptions
+    const userBadges = user.badge || user.badges || [];
+    const hasVtuberBadge = userBadges.includes('vtuber');
+    const hasVerifiedArtistBadge = userBadges.includes('verified');
+
     user.avatar = avatar;
     user.bio = bio;
-    // user.badge and user.badges are NOT allowed to be updated by user - only admin can change badges
     user.facebook = facebook;
-    user.zalo = zalo;
-    user.phone = phone;
     user.website = website;
     user.profile_email = profile_email;
+
+    // Only allow vtuber_description if user has vtuber badge
+    if (hasVtuberBadge && vtuber_description !== undefined) {
+      if (vtuber_description && vtuber_description.length > 50) {
+        return res.status(400).json({ error: 'Vtuber Description tối đa 50 ký tự' });
+      }
+      user.vtuber_description = vtuber_description;
+    }
+
+    // Only allow artist_description if user has verified badge
+    if (hasVerifiedArtistBadge && artist_description !== undefined) {
+      if (artist_description && artist_description.length > 50) {
+        return res.status(400).json({ error: 'Artist Description tối đa 50 ký tự' });
+      }
+      user.artist_description = artist_description;
+    }
 
     await user.save();
     res.json({ message: 'Cập nhật profile thành công' });
@@ -1181,7 +1199,17 @@ app.get('/api/spotlight/vtubers', async (req, res) => {
       { $lookup: { from: 'users', localField: '_id', foreignField: '_id', as: 'vtuber' } },
       { $unwind: '$vtuber' },
       { $match: { 'vtuber.badges': { $in: ['vtuber'] } } },
-      { $project: { _id: 1, voteCount: 1, username: '$vtuber.username', avatar: '$vtuber.avatar', bio: '$vtuber.bio' } }
+      { $project: { 
+        _id: 1, 
+        voteCount: 1, 
+        username: '$vtuber.username', 
+        avatar: '$vtuber.avatar', 
+        bio: '$vtuber.bio',
+        vtuber_description: '$vtuber.vtuber_description',
+        artist_description: '$vtuber.artist_description',
+        facebook: '$vtuber.facebook',
+        website: '$vtuber.website'
+      } }
     ]);
     res.json({ spotlight: topVTubers });
   } catch (error) {
@@ -1203,7 +1231,17 @@ app.get('/api/spotlight/artists', async (req, res) => {
       { $lookup: { from: 'users', localField: '_id', foreignField: '_id', as: 'artist' } },
       { $unwind: '$artist' },
       { $match: { 'artist.badges': { $in: validArtistBadges } } },
-      { $project: { _id: 1, voteCount: 1, username: '$artist.username', avatar: '$artist.avatar', bio: '$artist.bio' } }
+      { $project: { 
+        _id: 1, 
+        voteCount: 1, 
+        username: '$artist.username', 
+        avatar: '$artist.avatar', 
+        bio: '$artist.bio',
+        vtuber_description: '$artist.vtuber_description',
+        artist_description: '$artist.artist_description',
+        facebook: '$artist.facebook',
+        website: '$artist.website'
+      } }
     ]);
     res.json({ spotlight: topArtists });
   } catch (error) {
@@ -1258,7 +1296,7 @@ app.get('/api/vote/status', authenticateToken, async (req, res) => {
 app.get('/api/vtubers', async (req, res) => {
   try {
     const vtubers = await User.find({ badges: { $in: ['vtuber'] } })
-      .select('username avatar bio vote_bio badge badges')
+      .select('username avatar bio vote_bio badge badges vtuber_description artist_description facebook website')
       .sort({ username: 1 });
 
     res.json({
