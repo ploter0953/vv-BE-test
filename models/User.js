@@ -8,15 +8,16 @@ const userSchema = new mongoose.Schema({
   profile_email: { type: String }, // Public email for profile display
   avatar: { type: String },
   bio: { type: String },
+  vtuber_description: { type: String, maxlength: 50 }, // Description for VTuber badge users
+  artist_description: { type: String, maxlength: 50 }, // Description for verified Artist badge users
+  facebook: { type: String },
+  website: { type: String },
   social_links: {
     twitter: String,
     instagram: String,
     youtube: String,
     twitch: String,
-    discord: String,
-    zalo: String,
-    phone: String,
-    website: String
+    discord: String
   }
 }, { timestamps: true });
 

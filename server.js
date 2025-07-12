@@ -232,8 +232,11 @@ const userSchema = new mongoose.Schema({
   zalo: String,
   phone: String,
   website: String,
-  profile_email: { type: String, unique: true } // Added profile_email field
-});
+  profile_email: { type: String, unique: true }, // Added profile_email field
+  vote_bio: { type: String, default: '' }, // Mô tả ngắn riêng cho mục vote
+  vtuber_description: String, // Added vtuber_description
+  artist_description: String // Added artist_description
+}, { timestamps: true });
 const User = mongoose.model('User', userSchema);
 
 // Commission Schema
@@ -277,6 +280,27 @@ const voteSchema = new mongoose.Schema({
 });
 const Vote = mongoose.model('Vote', voteSchema);
 
+// VoteSpotlight Schema for Spotlight voting (VTuber & Artist)
+const voteSpotlightSchema = new mongoose.Schema({
+  voter_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  voted_user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  type: { type: String, enum: ['vtuber', 'artist'], required: true },
+  created_at: { type: Date, default: Date.now }
+});
+const VoteSpotlight = mongoose.model('VoteSpotlight', voteSpotlightSchema);
+
+// Feedback Schema
+const feedbackSchema = new mongoose.Schema({
+  user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  name: { type: String, required: true },
+  email: { type: String, required: true },
+  subject: { type: String, required: true },
+  message: { type: String, required: true },
+  created_at: { type: Date, default: Date.now }
+});
+
+const Feedback = mongoose.model('Feedback', feedbackSchema);
+
 // Helper function to extract public_id from Cloudinary URL
 function extractPublicIdFromCloudinaryUrl(url) {
   if (!url || !url.includes('cloudinary.com')) {
@@ -315,7 +339,7 @@ function comparePassword(password, hashedPassword) {
 // Helper function to generate JWT token
 function generateToken(user) {
   return jwt.sign(
-    { id: user.id, username: user.username, email: user.email },
+    { id: user._id, username: user.username, email: user.email },
     JWT_SECRET,
     { expiresIn: '7d' }
   );
@@ -454,13 +478,16 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Email/Username hoặc mật khẩu không đúng' });
     }
     const token = generateToken(user);
+    // Always return badges (array) and badge (string) for compatibility
     res.json({
       message: 'Đăng nhập thành công',
       user: {
         id: user._id,
         username: user.username,
         email: user.email,
-        avatar: user.avatar
+        avatar: user.avatar,
+        badge: user.badge || (user.badges && user.badges[0]) || 'member',
+        badges: user.badges && user.badges.length > 0 ? user.badges : (user.badge ? [user.badge] : ['member'])
       },
       token
     });
@@ -476,7 +503,18 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
     if (!user) {
       return res.status(404).json({ error: 'Người dùng không tồn tại' });
     }
-    res.json({ user });
+    res.json({ user: {
+      id: user._id,
+      username: user.username,
+      email: user.email,
+      avatar: user.avatar,
+      bio: user.bio,
+      facebook: user.facebook,
+      website: user.website,
+      profile_email: user.profile_email,
+      badge: user.badge || (user.badges && user.badges[0]) || 'member',
+      badges: user.badges && user.badges.length > 0 ? user.badges : (user.badge ? [user.badge] : ['member'])
+    }});
   } catch (error) {
     res.status(500).json({ error: 'Lỗi server' });
   }
@@ -501,8 +539,20 @@ app.get('/api/users/:id', async (req, res) => {
     if (!user) {
       return res.status(404).json({ error: 'Người dùng không tồn tại' });
     }
-
-    res.json({ user });
+    res.json({ user: {
+      id: user._id,
+      username: user.username,
+      email: user.email,
+      avatar: user.avatar,
+      bio: user.bio,
+      facebook: user.facebook,
+      website: user.website,
+      profile_email: user.profile_email,
+      vtuber_description: user.vtuber_description,
+      artist_description: user.artist_description,
+      badge: user.badge || (user.badges && user.badges[0]) || 'member',
+      badges: user.badges && user.badges.length > 0 ? user.badges : (user.badge ? [user.badge] : ['member'])
+    }});
   } catch (error) {
     return res.status(500).json({ error: 'Lỗi server' });
   }
@@ -511,7 +561,7 @@ app.get('/api/users/:id', async (req, res) => {
 // Update user profile
 app.put('/api/users/:id', authenticateToken, async (req, res) => {
   const userId = req.params.id;
-  const { avatar, bio, facebook, zalo, phone, website, profile_email } = req.body;
+  const { avatar, bio, facebook, website, profile_email, vtuber_description, artist_description } = req.body;
 
   // Check if user is updating their own profile
   if (userId !== req.user.id.toString()) {
@@ -524,14 +574,32 @@ app.put('/api/users/:id', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Người dùng không tồn tại' });
     }
 
+    // Check badge permissions for descriptions
+    const userBadges = user.badge || user.badges || [];
+    const hasVtuberBadge = userBadges.includes('vtuber');
+    const hasVerifiedArtistBadge = userBadges.includes('verified');
+
     user.avatar = avatar;
     user.bio = bio;
-    // user.badge and user.badges are NOT allowed to be updated by user - only admin can change badges
     user.facebook = facebook;
-    user.zalo = zalo;
-    user.phone = phone;
     user.website = website;
     user.profile_email = profile_email;
+
+    // Only allow vtuber_description if user has vtuber badge
+    if (hasVtuberBadge && vtuber_description !== undefined) {
+      if (vtuber_description && vtuber_description.length > 50) {
+        return res.status(400).json({ error: 'Vtuber Description tối đa 50 ký tự' });
+      }
+      user.vtuber_description = vtuber_description;
+    }
+
+    // Only allow artist_description if user has verified badge
+    if (hasVerifiedArtistBadge && artist_description !== undefined) {
+      if (artist_description && artist_description.length > 50) {
+        return res.status(400).json({ error: 'Artist Description tối đa 50 ký tự' });
+      }
+      user.artist_description = artist_description;
+    }
 
     await user.save();
     res.json({ message: 'Cập nhật profile thành công' });
@@ -808,11 +876,19 @@ app.put('/api/orders/:id/artist-reject', authenticateToken, async (req, res) => 
     if (order.artist_id.toString() !== req.user.id) {
       return res.status(403).json({ error: 'Không có quyền từ chối đơn hàng này' });
     }
-    if (order.status !== 'pending' && order.status !== 'confirmed') {
+    if (order.status !== 'pending' && order.status !== 'confirmed' && order.status !== 'waiting_customer_confirmation') {
       return res.status(400).json({ error: 'Không thể từ chối đơn hàng ở trạng thái này' });
     }
-    order.status = 'artist_rejected';
-    order.rejection_reason = rejection_reason || 'Artist từ chối thực hiện đơn hàng';
+    
+    // If order is in waiting_customer_confirmation status, set it to cancelled for customer
+    if (order.status === 'waiting_customer_confirmation') {
+      order.status = 'cancelled';
+      order.rejection_reason = rejection_reason || 'Artist từ chối xác nhận đơn hàng';
+    } else {
+      order.status = 'artist_rejected';
+      order.rejection_reason = rejection_reason || 'Artist từ chối thực hiện đơn hàng';
+    }
+    
     await order.save();
     
     // Check if commission should be reopened
@@ -827,7 +903,11 @@ app.put('/api/orders/:id/artist-reject', authenticateToken, async (req, res) => 
       await commission.save();
     }
     
-    res.json({ message: 'Đã từ chối đơn hàng. Commission sẽ được mở lại nếu không còn đơn hàng nào.' });
+    const message = order.status === 'cancelled' 
+      ? 'Đã từ chối xác nhận đơn hàng. Đơn hàng sẽ về trạng thái đã hủy và commission sẽ được mở lại.'
+      : 'Đã từ chối đơn hàng. Commission sẽ được mở lại nếu không còn đơn hàng nào.';
+    
+    res.json({ message });
   } catch (error) {
     res.status(500).json({ error: 'Lỗi server' });
   }
@@ -886,8 +966,8 @@ app.get('/api/orders', authenticateToken, async (req, res) => {
     }
     const orders = await Order.find(filter)
       .populate('commission_id')
-      .populate('customer_id', 'username avatar profile_email')
-      .populate('artist_id', 'username avatar profile_email');
+      .populate('customer_id', 'username avatar profile_email badge badges')
+      .populate('artist_id', 'username avatar profile_email badge badges');
     res.json({ orders });
   } catch (error) {
     res.status(500).json({ error: 'Lỗi server' });
@@ -1043,8 +1123,9 @@ app.post('/api/vote/vtuber', authenticateToken, async (req, res) => {
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    const existingVote = await Vote.findOne({
+    const existingVote = await VoteSpotlight.findOne({
       voter_id,
+      type: 'vtuber',
       created_at: {
         $gte: today,
         $lt: tomorrow
@@ -1056,9 +1137,10 @@ app.post('/api/vote/vtuber', authenticateToken, async (req, res) => {
     }
 
     // Create new vote
-    const newVote = await Vote.create({
+    const newVote = await VoteSpotlight.create({
       voter_id,
-      voted_vtuber_id,
+      voted_user_id: voted_vtuber_id,
+      type: 'vtuber',
       created_at: new Date()
     });
 
@@ -1073,86 +1155,152 @@ app.post('/api/vote/vtuber', authenticateToken, async (req, res) => {
   }
 });
 
-// Get VTuber spotlight (top 5 VTubers by votes)
-app.get('/api/spotlight/vtubers', async (req, res) => {
+// Vote for an Artist (1 vote per day per user)
+app.post('/api/vote/artist', authenticateToken, async (req, res) => {
   try {
-    // Get top 5 VTubers by vote count
-    const topVTubers = await Vote.aggregate([
-      {
-        $group: {
-          _id: '$voted_vtuber_id',
-          voteCount: { $sum: 1 }
-        }
-      },
-      {
-        $sort: { voteCount: -1 }
-      },
-      {
-        $limit: 5
-      },
-      {
-        $lookup: {
-          from: 'users',
-          localField: '_id',
-          foreignField: '_id',
-          as: 'vtuber'
-        }
-      },
-      {
-        $unwind: '$vtuber'
-      },
-      {
-        $match: {
-          'vtuber.badges': { $in: ['vtuber'] }
-        }
-      },
-      {
-        $project: {
-          _id: 1,
-          voteCount: 1,
-          username: '$vtuber.username',
-          avatar: '$vtuber.avatar',
-          bio: '$vtuber.bio'
-        }
-      }
-    ]);
-
-    res.json({
-      spotlight: topVTubers
-    });
-
-  } catch (error) {
-    console.error('Spotlight error:', error);
-    res.status(500).json({ error: 'Lỗi server' });
-  }
-});
-
-// Get user's vote status for today
-app.get('/api/vote/status', authenticateToken, async (req, res) => {
-  try {
+    const { voted_artist_id } = req.body;
     const voter_id = req.user.id;
-    
+    if (!voted_artist_id) {
+      return res.status(400).json({ error: 'Vui lòng chọn Artist để vote' });
+    }
+    // Check if voted user exists and has Artist badge (verified, trusted, quality, partner)
+    const votedUser = await User.findById(voted_artist_id);
+    if (!votedUser) {
+      return res.status(404).json({ error: 'Artist không tồn tại' });
+    }
+    const validArtistBadges = ['verified', 'trusted', 'quality', 'partner'];
+    if (!votedUser.badges || !votedUser.badges.some(b => validArtistBadges.includes(b))) {
+      return res.status(400).json({ error: 'Chỉ có thể vote cho user là Artist hợp lệ' });
+    }
+    if (voter_id === voted_artist_id) {
+      return res.status(400).json({ error: 'Không thể vote cho chính mình' });
+    }
+    // Check if user has already voted for Artist today
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
-
-    const todayVote = await Vote.findOne({
+    const existingVote = await VoteSpotlight.findOne({
       voter_id,
-      created_at: {
-        $gte: today,
-        $lt: tomorrow
-      }
-    }).populate('voted_vtuber_id', 'username avatar');
-
-    res.json({
-      hasVotedToday: !!todayVote,
-      todayVote: todayVote ? {
-        voted_vtuber: todayVote.voted_vtuber_id,
-        created_at: todayVote.created_at
-      } : null
+      type: 'artist',
+      created_at: { $gte: today, $lt: tomorrow }
     });
+    if (existingVote) {
+      return res.status(400).json({ error: 'Bạn đã vote Artist hôm nay. Vui lòng thử lại vào ngày mai' });
+    }
+    // Create new vote
+    const newVote = await VoteSpotlight.create({
+      voter_id,
+      voted_user_id: voted_artist_id,
+      type: 'artist',
+      created_at: new Date()
+    });
+    res.status(201).json({ message: 'Vote Artist thành công!', vote: newVote });
+  } catch (error) {
+    console.error('Vote Artist error:', error);
+    res.status(500).json({ error: 'Lỗi server' });
+  }
+});
 
+// Get VTuber spotlight (top 5 VTubers by votes)
+app.get('/api/spotlight/vtubers', async (req, res) => {
+  try {
+    // Get top 5 VTubers by vote count
+    const topVTubers = await VoteSpotlight.aggregate([
+      { $match: { type: 'vtuber' } },
+      { $group: { _id: '$voted_user_id', voteCount: { $sum: 1 } } },
+      { $sort: { voteCount: -1 } },
+      { $limit: 5 },
+      { $lookup: { from: 'users', localField: '_id', foreignField: '_id', as: 'vtuber' } },
+      { $unwind: '$vtuber' },
+      { $match: { 'vtuber.badges': { $in: ['vtuber'] } } },
+      { $project: { 
+        _id: 1, 
+        voteCount: 1, 
+        username: '$vtuber.username', 
+        avatar: '$vtuber.avatar', 
+        bio: '$vtuber.bio',
+        vtuber_description: '$vtuber.vtuber_description',
+        artist_description: '$vtuber.artist_description',
+        facebook: '$vtuber.facebook',
+        website: '$vtuber.website'
+      } }
+    ]);
+    res.json({ spotlight: topVTubers });
+  } catch (error) {
+    console.error('Spotlight VTuber error:', error);
+    res.status(500).json({ error: 'Lỗi server' });
+  }
+});
+
+// Get Artist spotlight (top 5 Artists by votes)
+app.get('/api/spotlight/artists', async (req, res) => {
+  try {
+    // Get top 5 Artists by vote count
+    const validArtistBadges = ['verified', 'trusted', 'quality', 'partner'];
+    const topArtists = await VoteSpotlight.aggregate([
+      { $match: { type: 'artist' } },
+      { $group: { _id: '$voted_user_id', voteCount: { $sum: 1 } } },
+      { $sort: { voteCount: -1 } },
+      { $limit: 5 },
+      { $lookup: { from: 'users', localField: '_id', foreignField: '_id', as: 'artist' } },
+      { $unwind: '$artist' },
+      { $match: { 'artist.badges': { $in: validArtistBadges } } },
+      { $project: { 
+        _id: 1, 
+        voteCount: 1, 
+        username: '$artist.username', 
+        avatar: '$artist.avatar', 
+        bio: '$artist.bio',
+        vtuber_description: '$artist.vtuber_description',
+        artist_description: '$artist.artist_description',
+        facebook: '$artist.facebook',
+        website: '$artist.website'
+      } }
+    ]);
+    res.json({ spotlight: topArtists });
+  } catch (error) {
+    console.error('Spotlight Artist error:', error);
+    res.status(500).json({ error: 'Lỗi server' });
+  }
+});
+
+// Get user's vote status for today (both vtuber & artist)
+app.get('/api/vote/status', authenticateToken, async (req, res) => {
+  try {
+    const voter_id = req.user.id;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    // VTuber vote status
+    const vtuberVote = await VoteSpotlight.findOne({
+      voter_id,
+      type: 'vtuber',
+      created_at: { $gte: today, $lt: tomorrow }
+    }).populate('voted_user_id', 'username avatar badge badges');
+    // Artist vote status
+    const artistVote = await VoteSpotlight.findOne({
+      voter_id,
+      type: 'artist',
+      created_at: { $gte: today, $lt: tomorrow }
+    }).populate('voted_user_id', 'username avatar badge badges');
+    res.json({
+      vtuber: {
+        hasVotedToday: !!vtuberVote,
+        todayVote: vtuberVote ? {
+          voted_user: vtuberVote.voted_user_id,
+          created_at: vtuberVote.created_at
+        } : null
+      },
+      artist: {
+        hasVotedToday: !!artistVote,
+        todayVote: artistVote ? {
+          voted_user: artistVote.voted_user_id,
+          created_at: artistVote.created_at
+        } : null
+      }
+    });
   } catch (error) {
     console.error('Vote status error:', error);
     res.status(500).json({ error: 'Lỗi server' });
@@ -1163,7 +1311,7 @@ app.get('/api/vote/status', authenticateToken, async (req, res) => {
 app.get('/api/vtubers', async (req, res) => {
   try {
     const vtubers = await User.find({ badges: { $in: ['vtuber'] } })
-      .select('username avatar bio')
+      .select('username avatar bio vote_bio badge badges vtuber_description artist_description facebook website')
       .sort({ username: 1 });
 
     res.json({
@@ -1172,6 +1320,106 @@ app.get('/api/vtubers', async (req, res) => {
 
   } catch (error) {
     console.error('Get VTubers error:', error);
+    res.status(500).json({ error: 'Lỗi server' });
+  }
+});
+
+// Get all users for voting (with optional badge filter)
+app.get('/api/users/vote', async (req, res) => {
+  try {
+    const { badge } = req.query;
+    console.log('Vote API called with badge:', badge);
+    
+    let filter = {};
+    
+    if (badge) {
+      // Filter users who have the specified badge in their badges array
+      filter.badges = { $in: [badge] };
+      console.log('Filter applied:', filter);
+    }
+    
+    // First, let's check if the User model and collection exist
+    const userCount = await User.countDocuments();
+    console.log('Total users in database:', userCount);
+    
+    // Check a sample user to see the structure
+    const sampleUser = await User.findOne();
+    if (sampleUser) {
+      console.log('Sample user structure:', {
+        id: sampleUser._id,
+        username: sampleUser.username,
+        badges: sampleUser.badges,
+        badge: sampleUser.badge
+      });
+    }
+    
+    const users = await User.find(filter)
+      .select('username avatar bio vote_bio badge badges vtuber_description artist_description facebook website')
+      .sort({ username: 1 });
+
+    console.log('Found users:', users.length);
+    res.json({
+      users
+    });
+
+  } catch (error) {
+    console.error('Get users for vote error:', error);
+    console.error('Error stack:', error.stack);
+    res.status(500).json({ 
+      error: 'Lỗi server',
+      details: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+});
+
+// POST /api/feedback - Save feedback
+app.post('/api/feedback', authenticateToken, async (req, res) => {
+  try {
+    const { message, name, email, subject } = req.body;
+    if (!message || !name || !email || !subject || typeof message !== 'string' || message.trim().length === 0) {
+      return res.status(400).json({ error: 'Thông tin feedback không hợp lệ' });
+    }
+    const user = await User.findById(req.user.id);
+    const feedback = await Feedback.create({
+      user_id: user._id,
+      name: name.trim(),
+      email: email.trim(),
+      subject: subject.trim(),
+      message: message.trim()
+    });
+    res.status(201).json({ message: 'Gửi feedback thành công', feedback });
+  } catch (error) {
+    res.status(500).json({ error: 'Lỗi server' });
+  }
+});
+// GET /api/feedback - Get all feedback (admin email only)
+app.get('/api/feedback', authenticateToken, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user || user.email !== 'huynguyen86297@gmail.com') {
+      return res.status(403).json({ error: 'Không có quyền truy cập feedback' });
+    }
+    const feedbacks = await Feedback.find({}).sort({ created_at: -1 }).populate('user_id', 'username email avatar');
+    res.json({ feedbacks });
+  } catch (error) {
+    res.status(500).json({ error: 'Lỗi server' });
+  }
+});
+
+// DELETE /api/feedback/:id - Admin delete feedback
+app.delete('/api/feedback/:id', authenticateToken, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user || user.email !== 'huynguyen86297@gmail.com') {
+      return res.status(403).json({ error: 'Không có quyền xóa feedback' });
+    }
+    const feedback = await Feedback.findByIdAndDelete(req.params.id);
+    if (!feedback) {
+      return res.status(404).json({ error: 'Feedback không tồn tại' });
+    }
+    res.json({ message: 'Đã xóa feedback thành công' });
+  } catch (error) {
     res.status(500).json({ error: 'Lỗi server' });
   }
 });
