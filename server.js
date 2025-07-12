@@ -876,11 +876,19 @@ app.put('/api/orders/:id/artist-reject', authenticateToken, async (req, res) => 
     if (order.artist_id.toString() !== req.user.id) {
       return res.status(403).json({ error: 'Không có quyền từ chối đơn hàng này' });
     }
-    if (order.status !== 'pending' && order.status !== 'confirmed') {
+    if (order.status !== 'pending' && order.status !== 'confirmed' && order.status !== 'waiting_customer_confirmation') {
       return res.status(400).json({ error: 'Không thể từ chối đơn hàng ở trạng thái này' });
     }
-    order.status = 'artist_rejected';
-    order.rejection_reason = rejection_reason || 'Artist từ chối thực hiện đơn hàng';
+    
+    // If order is in waiting_customer_confirmation status, set it to cancelled for customer
+    if (order.status === 'waiting_customer_confirmation') {
+      order.status = 'cancelled';
+      order.rejection_reason = rejection_reason || 'Artist từ chối xác nhận đơn hàng';
+    } else {
+      order.status = 'artist_rejected';
+      order.rejection_reason = rejection_reason || 'Artist từ chối thực hiện đơn hàng';
+    }
+    
     await order.save();
     
     // Check if commission should be reopened
@@ -895,7 +903,11 @@ app.put('/api/orders/:id/artist-reject', authenticateToken, async (req, res) => 
       await commission.save();
     }
     
-    res.json({ message: 'Đã từ chối đơn hàng. Commission sẽ được mở lại nếu không còn đơn hàng nào.' });
+    const message = order.status === 'cancelled' 
+      ? 'Đã từ chối xác nhận đơn hàng. Đơn hàng sẽ về trạng thái đã hủy và commission sẽ được mở lại.'
+      : 'Đã từ chối đơn hàng. Commission sẽ được mở lại nếu không còn đơn hàng nào.';
+    
+    res.json({ message });
   } catch (error) {
     res.status(500).json({ error: 'Lỗi server' });
   }
@@ -1308,6 +1320,30 @@ app.get('/api/vtubers', async (req, res) => {
 
   } catch (error) {
     console.error('Get VTubers error:', error);
+    res.status(500).json({ error: 'Lỗi server' });
+  }
+});
+
+// Get all users for voting (with optional badge filter)
+app.get('/api/users/vote', async (req, res) => {
+  try {
+    const { badge } = req.query;
+    let filter = {};
+    
+    if (badge) {
+      filter.badges = { $in: [badge] };
+    }
+    
+    const users = await User.find(filter)
+      .select('username avatar bio vote_bio badge badges vtuber_description artist_description facebook website')
+      .sort({ username: 1 });
+
+    res.json({
+      users
+    });
+
+  } catch (error) {
+    console.error('Get users for vote error:', error);
     res.status(500).json({ error: 'Lỗi server' });
   }
 });
