@@ -304,6 +304,17 @@ const voteSchema = new mongoose.Schema({
 });
 const Vote = mongoose.model('Vote', voteSchema);
 
+// Feedback Schema
+const feedbackSchema = new mongoose.Schema({
+  user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  name: { type: String, required: true },
+  email: { type: String, required: true },
+  subject: { type: String, required: true },
+  message: { type: String, required: true },
+  created_at: { type: Date, default: Date.now }
+});
+const Feedback = mongoose.model('Feedback', feedbackSchema);
+
 // Helper function to extract public_id from Cloudinary URL
 function extractPublicIdFromCloudinaryUrl(url) {
   if (!url || !url.includes('cloudinary.com')) {
@@ -1342,6 +1353,8 @@ app.get('/api/vtubers', async (req, res) => {
 // Get users for voting (with optional badge filter)
 app.get('/api/users/vote', async (req, res) => {
   try {
+    console.log('GET /api/users/vote called with query:', req.query);
+    
     const { badge } = req.query;
     let query = {};
     
@@ -1353,9 +1366,13 @@ app.get('/api/users/vote', async (req, res) => {
       }
     }
 
+    console.log('MongoDB query:', JSON.stringify(query));
+
     const users = await User.find(query)
       .select('username avatar bio badges')
       .sort({ username: 1 });
+
+    console.log(`Found ${users.length} users for voting`);
 
     res.json({
       users
@@ -1363,6 +1380,80 @@ app.get('/api/users/vote', async (req, res) => {
 
   } catch (error) {
     console.error('Get users for vote error:', error);
+    console.error('Error stack:', error.stack);
+    res.status(500).json({ error: 'Lỗi server', details: error.message });
+  }
+});
+
+// Feedback endpoints
+app.post('/api/feedback', async (req, res) => {
+  try {
+    const { name, email, subject, message } = req.body;
+    
+    if (!name || !email || !subject || !message) {
+      return res.status(400).json({ error: 'Tất cả các trường đều bắt buộc' });
+    }
+
+    const feedback = await Feedback.create({
+      name,
+      email,
+      subject,
+      message,
+      created_at: new Date()
+    });
+
+    res.status(201).json({
+      message: 'Feedback đã được gửi thành công',
+      feedback
+    });
+
+  } catch (error) {
+    console.error('Feedback creation error:', error);
+    res.status(500).json({ error: 'Lỗi server' });
+  }
+});
+
+app.get('/api/feedback', authenticateToken, async (req, res) => {
+  try {
+    // Only admin can view all feedback
+    const user = await User.findById(req.user.id);
+    if (!user || user.email !== 'huynguyen86297@gmail.com') {
+      return res.status(403).json({ error: 'Không có quyền truy cập' });
+    }
+
+    const feedbacks = await Feedback.find()
+      .populate('user_id', 'username avatar')
+      .sort({ created_at: -1 });
+
+    res.json({
+      feedbacks
+    });
+
+  } catch (error) {
+    console.error('Get feedback error:', error);
+    res.status(500).json({ error: 'Lỗi server' });
+  }
+});
+
+app.delete('/api/feedback/:id', authenticateToken, async (req, res) => {
+  try {
+    // Only admin can delete feedback
+    const user = await User.findById(req.user.id);
+    if (!user || user.email !== 'huynguyen86297@gmail.com') {
+      return res.status(403).json({ error: 'Không có quyền truy cập' });
+    }
+
+    const feedback = await Feedback.findByIdAndDelete(req.params.id);
+    if (!feedback) {
+      return res.status(404).json({ error: 'Feedback không tồn tại' });
+    }
+
+    res.json({
+      message: 'Feedback đã được xóa thành công'
+    });
+
+  } catch (error) {
+    console.error('Delete feedback error:', error);
     res.status(500).json({ error: 'Lỗi server' });
   }
 });
