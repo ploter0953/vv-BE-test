@@ -142,14 +142,30 @@ app.use('/api', (req, res, next) => {
   console.log(`=== REQUEST TRACKING ===`);
   console.log(`Method: ${req.method}`);
   console.log(`Path: ${req.path}`);
+  console.log(`Full URL: ${req.originalUrl}`);
   console.log(`Origin: ${req.headers.origin}`);
   console.log(`User-Agent: ${req.headers['user-agent']?.substring(0, 50)}`);
   console.log(`=== END TRACKING ===`);
   next();
 });
 
+// Simple debug middleware for /api/users/vote specifically
+app.use('/api/users/vote', (req, res, next) => {
+  console.log('🔍 DEBUG: Request to /api/users/vote detected!');
+  console.log('🔍 DEBUG: Method:', req.method);
+  console.log('🔍 DEBUG: Query:', req.query);
+  console.log('🔍 DEBUG: Headers:', {
+    origin: req.headers.origin,
+    'user-agent': req.headers['user-agent']?.substring(0, 50)
+  });
+  next();
+});
+
 // Apply origin validation middleware to all API routes
-app.use('/api', validateOrigin);
+app.use('/api', (req, res, next) => {
+  console.log(`🚀 BEFORE validateOrigin: ${req.method} ${req.path}`);
+  validateOrigin(req, res, next);
+});
 
 // Additional security: Block common API testing tools
 app.use('/api', (req, res, next) => {
@@ -238,7 +254,7 @@ const userSchema = new mongoose.Schema({
   zalo: String,
   phone: String,
   website: String,
-  profile_email: { type: String, unique: true }, // Added profile_email field
+  profile_email: { type: String, unique: true, sparse: true }, // Added profile_email field with sparse index
   vote_bio: { type: String, default: '' }, // Mô tả ngắn riêng cho mục vote
   vtuber_description: String, // Added vtuber_description
   artist_description: String // Added artist_description
@@ -463,6 +479,11 @@ app.post('/api/auth/register', async (req, res) => {
       if (error.keyPattern.email) {
         return res.status(400).json({ error: 'Email đã được sử dụng' });
       }
+      if (error.keyPattern.profile_email) {
+        return res.status(400).json({ error: 'Profile email đã được sử dụng' });
+      }
+      // Generic duplicate key error
+      return res.status(400).json({ error: 'Thông tin đã tồn tại trong hệ thống' });
     }
     res.status(500).json({ error: 'Lỗi server' });
   }
@@ -1323,6 +1344,72 @@ app.get('/api/test-simple', (req, res) => {
   });
 });
 
+// Test endpoint for vtuber badge
+app.get('/api/test/vtuber-badge', async (req, res) => {
+  try {
+    console.log('=== Testing vtuber badge users ===');
+    
+    // Check all users
+    const allUsers = await User.find({}).select('username badges badge');
+    console.log('All users:', allUsers.length);
+    
+    // Check users with vtuber badge
+    const vtuberUsers = await User.find({ badges: { $in: ['vtuber'] } }).select('username badges badge');
+    console.log('Users with vtuber badge:', vtuberUsers.length);
+    
+    // Check users with any badge
+    const usersWithBadges = await User.find({ badges: { $exists: true, $ne: [] } }).select('username badges badge');
+    console.log('Users with any badges:', usersWithBadges.length);
+    
+    res.json({
+      totalUsers: allUsers.length,
+      vtuberUsers: vtuberUsers.length,
+      usersWithBadges: usersWithBadges.length,
+      sampleUsers: allUsers.slice(0, 5),
+      vtuberUsersList: vtuberUsers
+    });
+    
+  } catch (error) {
+    console.error('Test endpoint error:', error);
+    res.status(500).json({ error: 'Test failed', details: error.message });
+  }
+});
+
+// Simplified test endpoint for /api/users/vote
+app.get('/api/test/users-vote', async (req, res) => {
+  try {
+    console.log('=== Simplified /api/users/vote test ===');
+    const { badge } = req.query;
+    console.log('Query badge:', badge);
+    
+    let filter = {};
+    if (badge) {
+      filter.badges = { $in: [badge] };
+    }
+    
+    console.log('Filter:', JSON.stringify(filter));
+    
+    const users = await User.find(filter).select('username badges').limit(5);
+    console.log('Found users:', users.length);
+    
+    res.json({
+      success: true,
+      badge: badge,
+      filter: filter,
+      userCount: users.length,
+      users: users
+    });
+    
+  } catch (error) {
+    console.error('Simplified test error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: error.message,
+      stack: error.stack
+    });
+  }
+});
+
 // Get all VTubers (users with vtuber badge)
 app.get('/api/vtubers', async (req, res) => {
   try {
@@ -1340,105 +1427,76 @@ app.get('/api/vtubers', async (req, res) => {
   }
 });
 
-// Get all users for voting (with optional badge filter)
+// Get all users for voting (with optional badge filter) - SAFE VERSION
 app.get('/api/users/vote', async (req, res) => {
   try {
-    console.log('=== /api/users/vote API called ===');
+    console.log('=== /api/users/vote API called (SAFE VERSION) ===');
     const { badge } = req.query;
     console.log('Query badge parameter:', badge);
     
-    let filter = {};
-    
-    if (badge) {
-      // Filter users who have the specified badge in their badges array
-      filter.badges = { $in: [badge] };
-      console.log('Filter applied:', JSON.stringify(filter));
-    } else {
-      console.log('No badge filter - getting all users');
+    // Get all users first (safe approach)
+    let allUsers = [];
+    try {
+      allUsers = await User.find({})
+        .select('username avatar bio vote_bio badge badges vtuber_description artist_description facebook website')
+        .sort({ username: 1 });
+      console.log('Successfully fetched all users:', allUsers.length);
+    } catch (dbError) {
+      console.error('Database query failed:', dbError.message);
+      return res.json({ users: [] }); // Return empty array instead of error
     }
     
-    // First, let's check if the User model and collection exist
-    console.log('Checking database connection...');
-    const userCount = await User.countDocuments();
-    console.log('Total users in database:', userCount);
-    
-    if (userCount === 0) {
-      console.log('No users found in database');
-      return res.json({ users: [] });
+    // If no badge filter, return all users
+    if (!badge) {
+      console.log('No badge filter - returning all users');
+      return res.json({ users: allUsers });
     }
     
-    // Check a sample user to see the structure
-    console.log('Checking sample user structure...');
-    const sampleUser = await User.findOne();
-    if (sampleUser) {
-      console.log('Sample user structure:', {
-        id: sampleUser._id,
-        username: sampleUser.username,
-        badges: sampleUser.badges,
-        badge: sampleUser.badge,
-        hasBadgesField: 'badges' in sampleUser,
-        badgesType: typeof sampleUser.badges,
-        isBadgesArray: Array.isArray(sampleUser.badges)
-      });
-    } else {
-      console.log('No sample user found');
-    }
+    // Filter users by badge using JavaScript (safer than MongoDB query)
+    console.log(`Filtering users for badge: ${badge}`);
+    const filteredUsers = allUsers.filter(user => {
+      // Handle different badge field scenarios
+      if (user.badges && Array.isArray(user.badges)) {
+        return user.badges.includes(badge);
+      }
+      
+      // Fallback: check old 'badge' field
+      if (user.badge && user.badge === badge) {
+        return true;
+      }
+      
+      // Fallback: check if badges is a string
+      if (user.badges && typeof user.badges === 'string' && user.badges === badge) {
+        return true;
+      }
+      
+      return false;
+    });
     
-    // Check if any users have invalid badges field
-    console.log('Checking for users with invalid badges field...');
-    const usersWithInvalidBadges = await User.find({
-      $or: [
-        { badges: { $exists: false } },
-        { badges: null },
-        { badges: { $type: "string" } } // badges is string instead of array
-      ]
-    }).select('username badges badge');
+    console.log(`Found ${filteredUsers.length} users with badge '${badge}'`);
     
-    if (usersWithInvalidBadges.length > 0) {
-      console.log('Found users with invalid badges field:', usersWithInvalidBadges.length);
-      usersWithInvalidBadges.forEach(user => {
-        console.log('Invalid user:', {
-          username: user.username,
-          badges: user.badges,
-          badge: user.badge
-        });
-      });
-    } else {
-      console.log('All users have valid badges field');
-    }
-    
-    console.log('Executing main query with filter:', JSON.stringify(filter));
-    const users = await User.find(filter)
-      .select('username avatar bio vote_bio badge badges vtuber_description artist_description facebook website')
-      .sort({ username: 1 });
-
-    console.log('Query successful, found users:', users.length);
-    
-    // Log first few users for debugging
-    if (users.length > 0) {
-      console.log('First 3 users:', users.slice(0, 3).map(u => ({
+    // Log sample users for debugging
+    if (filteredUsers.length > 0) {
+      console.log('Sample filtered users:', filteredUsers.slice(0, 3).map(u => ({
         username: u.username,
         badges: u.badges,
-        hasAvatar: !!u.avatar
+        badge: u.badge
       })));
     }
     
     res.json({
-      users
+      users: filteredUsers
     });
 
   } catch (error) {
-    console.error('=== /api/users/vote ERROR ===');
+    console.error('=== /api/users/vote ERROR (SAFE VERSION) ===');
     console.error('Error message:', error.message);
-    console.error('Error name:', error.name);
-    console.error('Error stack:', error.stack);
-    console.error('Full error object:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
     
-    res.status(500).json({ 
-      error: 'Lỗi server',
-      details: error.message,
-      name: error.name,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    // Return empty array instead of 500 error
+    res.json({ 
+      users: [],
+      error: 'Tạm thời không thể tải danh sách user',
+      debug: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
