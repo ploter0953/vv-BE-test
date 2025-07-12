@@ -503,6 +503,12 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
       username: user.username,
       email: user.email,
       avatar: user.avatar,
+      bio: user.bio,
+      facebook: user.facebook,
+      zalo: user.zalo,
+      phone: user.phone,
+      website: user.website,
+      profile_email: user.profile_email,
       badge: user.badge || (user.badges && user.badges[0]) || 'member',
       badges: user.badges && user.badges.length > 0 ? user.badges : (user.badge ? [user.badge] : ['member'])
     }});
@@ -535,6 +541,12 @@ app.get('/api/users/:id', async (req, res) => {
       username: user.username,
       email: user.email,
       avatar: user.avatar,
+      bio: user.bio,
+      facebook: user.facebook,
+      zalo: user.zalo,
+      phone: user.phone,
+      website: user.website,
+      profile_email: user.profile_email,
       badge: user.badge || (user.badges && user.badges[0]) || 'member',
       badges: user.badges && user.badges.length > 0 ? user.badges : (user.badge ? [user.badge] : ['member'])
     }});
@@ -921,8 +933,8 @@ app.get('/api/orders', authenticateToken, async (req, res) => {
     }
     const orders = await Order.find(filter)
       .populate('commission_id')
-      .populate('customer_id', 'username avatar profile_email')
-      .populate('artist_id', 'username avatar profile_email');
+      .populate('customer_id', 'username avatar profile_email badge badges')
+      .populate('artist_id', 'username avatar profile_email badge badges');
     res.json({ orders });
   } catch (error) {
     res.status(500).json({ error: 'Lỗi server' });
@@ -1211,13 +1223,13 @@ app.get('/api/vote/status', authenticateToken, async (req, res) => {
       voter_id,
       type: 'vtuber',
       created_at: { $gte: today, $lt: tomorrow }
-    }).populate('voted_user_id', 'username avatar');
+    }).populate('voted_user_id', 'username avatar badge badges');
     // Artist vote status
     const artistVote = await VoteSpotlight.findOne({
       voter_id,
       type: 'artist',
       created_at: { $gte: today, $lt: tomorrow }
-    }).populate('voted_user_id', 'username avatar');
+    }).populate('voted_user_id', 'username avatar badge badges');
     res.json({
       vtuber: {
         hasVotedToday: !!vtuberVote,
