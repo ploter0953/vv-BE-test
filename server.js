@@ -1289,6 +1289,23 @@ app.get('/api/feedback', authenticateToken, async (req, res) => {
   }
 });
 
+// DELETE /api/feedback/:id - Admin delete feedback
+app.delete('/api/feedback/:id', authenticateToken, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user || user.email !== 'huynguyen86297@gmail.com') {
+      return res.status(403).json({ error: 'Không có quyền xóa feedback' });
+    }
+    const feedback = await Feedback.findByIdAndDelete(req.params.id);
+    if (!feedback) {
+      return res.status(404).json({ error: 'Feedback không tồn tại' });
+    }
+    res.json({ message: 'Đã xóa feedback thành công' });
+  } catch (error) {
+    res.status(500).json({ error: 'Lỗi server' });
+  }
+});
+
 // Global error handler
 app.use((err, req, res, next) => {
   console.error('Global error handler:', err);
