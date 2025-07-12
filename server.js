@@ -1368,8 +1368,14 @@ app.get('/api/users/vote', async (req, res) => {
 
     console.log('MongoDB query:', JSON.stringify(query));
 
+    // Add error handling for database connection
+    if (!mongoose.connection.readyState) {
+      console.error('Database not connected');
+      return res.status(500).json({ error: 'Database connection error' });
+    }
+
     const users = await User.find(query)
-      .select('username avatar bio badges')
+      .select('username avatar bio badges vtuber_description artist_description')
       .sort({ username: 1 });
 
     console.log(`Found ${users.length} users for voting`);
@@ -1381,7 +1387,14 @@ app.get('/api/users/vote', async (req, res) => {
   } catch (error) {
     console.error('Get users for vote error:', error);
     console.error('Error stack:', error.stack);
-    res.status(500).json({ error: 'Lỗi server', details: error.message });
+    console.error('Error name:', error.name);
+    console.error('Error message:', error.message);
+    res.status(500).json({ 
+      error: 'Lỗi server', 
+      details: error.message,
+      name: error.name,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 });
 
