@@ -1331,6 +1331,7 @@ app.get('/api/users/vote', async (req, res) => {
     let filter = {};
     
     if (badge) {
+      // Filter users who have the specified badge in their badges array
       filter.badges = { $in: [badge] };
     }
     
