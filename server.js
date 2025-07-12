@@ -51,6 +51,7 @@ const getAllowedOrigins = () => {
 
 // Enhanced origin validation middleware
 const validateOrigin = (req, res, next) => {
+  console.log(`validateOrigin middleware called for ${req.method} ${req.path}`);
   const origin = req.headers.origin;
   const allowedOrigins = getAllowedOrigins();
   
@@ -71,6 +72,7 @@ const validateOrigin = (req, res, next) => {
   // Check if origin is allowed
   if (allowedOrigins.includes(origin)) {
     console.log(`Origin ${origin} is allowed`);
+    console.log(`validateOrigin middleware - PASSED`);
     return next();
   }
   
@@ -93,6 +95,12 @@ app.use((req, res, next) => {
 // Middleware to log requests for debugging
 app.use((req, res, next) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.path} - Origin: ${req.headers.origin || 'No origin'} - User-Agent: ${req.headers['user-agent']?.substring(0, 50) || 'No user-agent'}`);
+  console.log(`Request headers:`, {
+    origin: req.headers.origin,
+    referer: req.headers.referer,
+    'user-agent': req.headers['user-agent']?.substring(0, 100),
+    'content-type': req.headers['content-type']
+  });
   next();
 });
 
@@ -100,6 +108,9 @@ app.use((req, res, next) => {
 const corsOptions = {
   origin: function (origin, callback) {
     const allowedOrigins = getAllowedOrigins();
+    
+    console.log(`CORS middleware - Origin: ${origin}`);
+    console.log(`CORS middleware - Allowed origins: ${allowedOrigins.join(', ')}`);
     
     // Block requests with no origin (direct API access, Postman, curl, etc.)
     if (!origin) {
@@ -126,11 +137,23 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
+// Request tracking middleware
+app.use('/api', (req, res, next) => {
+  console.log(`=== REQUEST TRACKING ===`);
+  console.log(`Method: ${req.method}`);
+  console.log(`Path: ${req.path}`);
+  console.log(`Origin: ${req.headers.origin}`);
+  console.log(`User-Agent: ${req.headers['user-agent']?.substring(0, 50)}`);
+  console.log(`=== END TRACKING ===`);
+  next();
+});
+
 // Apply origin validation middleware to all API routes
 app.use('/api', validateOrigin);
 
 // Additional security: Block common API testing tools
 app.use('/api', (req, res, next) => {
+  console.log(`User-agent blocking middleware called for ${req.method} ${req.path}`);
   const userAgent = req.headers['user-agent'] || '';
   const blockedTools = [
     'postman',
@@ -145,6 +168,7 @@ app.use('/api', (req, res, next) => {
   
   // Skip for OPTIONS requests
   if (req.method === 'OPTIONS') {
+    console.log(`User-agent blocking middleware - SKIPPED (OPTIONS request)`);
     return next();
   }
   
@@ -159,6 +183,7 @@ app.use('/api', (req, res, next) => {
     });
   }
   
+  console.log(`User-agent blocking middleware - PASSED`);
   next();
 });
 
@@ -179,8 +204,25 @@ const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/vtuber
 mongoose.connect(MONGODB_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true
-}).then(() => console.log('MongoDB connected to', mongoose.connection.name))
-  .catch(err => console.error('MongoDB connection error:', err));
+}).then(() => {
+  console.log('MongoDB connected to', mongoose.connection.name);
+  console.log('MongoDB connection state:', mongoose.connection.readyState);
+}).catch(err => {
+  console.error('MongoDB connection error:', err);
+});
+
+// Add MongoDB connection event listeners
+mongoose.connection.on('error', (err) => {
+  console.error('MongoDB connection error:', err);
+});
+
+mongoose.connection.on('disconnected', () => {
+  console.log('MongoDB disconnected');
+});
+
+mongoose.connection.on('connected', () => {
+  console.log('MongoDB connected');
+});
 
 // Mongoose User model
 const userSchema = new mongoose.Schema({
@@ -1269,6 +1311,16 @@ app.get('/api/vote/status', authenticateToken, async (req, res) => {
     console.error('Vote status error:', error);
     res.status(500).json({ error: 'Lỗi server' });
   }
+});
+
+// Test endpoint for debugging
+app.get('/api/test-simple', (req, res) => {
+  console.log('=== Simple test endpoint called ===');
+  res.json({ 
+    message: 'Simple test endpoint working!', 
+    timestamp: new Date().toISOString(),
+    path: req.path
+  });
 });
 
 // Get all VTubers (users with vtuber badge)
