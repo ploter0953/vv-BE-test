@@ -1256,7 +1256,7 @@ app.get('/api/vote/status', authenticateToken, async (req, res) => {
 app.get('/api/vtubers', async (req, res) => {
   try {
     const vtubers = await User.find({ badges: { $in: ['vtuber'] } })
-      .select('username avatar bio vote_bio')
+      .select('username avatar bio vote_bio badge badges')
       .sort({ username: 1 });
 
     res.json({
