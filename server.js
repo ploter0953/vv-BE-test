@@ -292,10 +292,13 @@ const VoteSpotlight = mongoose.model('VoteSpotlight', voteSpotlightSchema);
 // Feedback Schema
 const feedbackSchema = new mongoose.Schema({
   user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  email: String,
-  message: String,
+  name: { type: String, required: true },
+  email: { type: String, required: true },
+  subject: { type: String, required: true },
+  message: { type: String, required: true },
   created_at: { type: Date, default: Date.now }
 });
+
 const Feedback = mongoose.model('Feedback', feedbackSchema);
 
 // Helper function to extract public_id from Cloudinary URL
@@ -1312,14 +1315,16 @@ app.get('/api/vtubers', async (req, res) => {
 // POST /api/feedback - Save feedback
 app.post('/api/feedback', authenticateToken, async (req, res) => {
   try {
-    const { message } = req.body;
-    if (!message || typeof message !== 'string' || message.trim().length === 0) {
-      return res.status(400).json({ error: 'Nội dung feedback không hợp lệ' });
+    const { message, name, email, subject } = req.body;
+    if (!message || !name || !email || !subject || typeof message !== 'string' || message.trim().length === 0) {
+      return res.status(400).json({ error: 'Thông tin feedback không hợp lệ' });
     }
     const user = await User.findById(req.user.id);
     const feedback = await Feedback.create({
       user_id: user._id,
-      email: user.email,
+      name: name.trim(),
+      email: email.trim(),
+      subject: subject.trim(),
       message: message.trim()
     });
     res.status(201).json({ message: 'Gửi feedback thành công', feedback });
