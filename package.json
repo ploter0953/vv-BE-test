@@ -7,8 +7,7 @@
     "start": "node server.js",
     "dev": "nodemon server.js",
     "build": "echo 'No build step required for Node.js'",
-    "vercel-build": "echo 'Building for Vercel...'",
-    "fix-indexes": "node fix_indexes.js"
+    "vercel-build": "echo 'Building for Vercel...'"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

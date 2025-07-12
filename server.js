@@ -40,23 +40,11 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-producti
 
 // Parse allowed origins from environment variable
 const getAllowedOrigins = () => {
-  // Base allowed origins
+  // Only allow official domain
   const allowedOrigins = [
     'https://projectvtuber.com',
     'https://www.projectvtuber.com'
   ];
-  
-  // Add development origins if not in production
-  if (process.env.NODE_ENV !== 'production') {
-    allowedOrigins.push(
-      'http://localhost:3000',
-      'http://localhost:5173',
-      'http://127.0.0.1:3000',
-      'http://127.0.0.1:5173',
-      'https://vtuberverse-frontend.vercel.app',
-      'https://vtuberverse.vercel.app'
-    );
-  }
   
   return allowedOrigins;
 };
@@ -70,24 +58,13 @@ const validateOrigin = (req, res, next) => {
   console.log(`Request origin: ${origin}`);
   console.log(`Allowed origins: ${allowedOrigins.join(', ')}`);
   
-  // Skip validation for health check and test endpoints
-  if (req.path === '/api/health' || req.path === '/api/test') {
-    console.log('Skipping origin validation for health/test endpoint');
-    return next();
-  }
-  
-  // Allow requests with no origin in development
-  if (!origin && process.env.NODE_ENV !== 'production') {
-    console.log('No origin header - ALLOWING in development');
-    return next();
-  }
-  
-  // Block requests with no origin in production
-  if (!origin && process.env.NODE_ENV === 'production') {
-    console.log('No origin header - BLOCKING request in production');
+  // Block requests with no origin (direct API access, Postman, curl, etc.)
+  if (!origin) {
+    console.log('No origin header - BLOCKING request (direct API access not allowed)');
     return res.status(403).json({
       error: 'Truy cập trực tiếp API không được phép',
-      message: 'Vui lòng truy cập từ domain chính thức: https://www.projectvtuber.com'
+      message: 'Vui lòng truy cập từ domain chính thức: https://www.projectvtuber.com',
+      allowedOrigins: process.env.NODE_ENV === 'development' ? allowedOrigins : undefined
     });
   }
   
@@ -124,18 +101,9 @@ const corsOptions = {
   origin: function (origin, callback) {
     const allowedOrigins = getAllowedOrigins();
     
-    console.log(`CORS middleware - Origin: ${origin}`);
-    console.log(`CORS middleware - Allowed origins: ${allowedOrigins.join(', ')}`);
-    
-    // Allow requests with no origin in development
-    if (!origin && process.env.NODE_ENV !== 'production') {
-      console.log('CORS: No origin - ALLOWING in development');
-      return callback(null, true);
-    }
-    
-    // Block requests with no origin in production
-    if (!origin && process.env.NODE_ENV === 'production') {
-      console.log('CORS: No origin - BLOCKING request in production');
+    // Block requests with no origin (direct API access, Postman, curl, etc.)
+    if (!origin) {
+      console.log('CORS: No origin - BLOCKING request (direct API access not allowed)');
       return callback(new Error('Truy cập trực tiếp API không được phép'), false);
     }
     
@@ -171,20 +139,9 @@ app.use('/api', (req, res, next) => {
     return next();
   }
   
-  // Skip referer check for health and test endpoints
-  if (req.path === '/api/health' || req.path === '/api/test') {
-    return next();
-  }
-  
-  // Allow requests without referer in development
-  if (!referer && process.env.NODE_ENV !== 'production') {
-    console.log('No referer header - ALLOWING in development');
-    return next();
-  }
-  
-  // Block requests without referer in production
-  if (!referer && process.env.NODE_ENV === 'production') {
-    console.log('No referer header - BLOCKING request in production');
+  // Block requests without referer (direct API access)
+  if (!referer) {
+    console.log('No referer header - BLOCKING request (direct API access not allowed)');
     return res.status(403).json({
       error: 'Truy cập trực tiếp API không được phép',
       message: 'Vui lòng truy cập từ domain chính thức: https://www.projectvtuber.com'
@@ -192,60 +149,41 @@ app.use('/api', (req, res, next) => {
   }
   
   // Check if referer is from allowed domain
-  try {
-    const refererUrl = new URL(referer);
-    const refererOrigin = refererUrl.origin;
-    
-    if (!allowedOrigins.includes(refererOrigin)) {
-      console.log(`Referer ${refererOrigin} is NOT allowed - blocking request`);
-      return res.status(403).json({
-        error: 'Truy cập không được phép từ domain này',
-        message: 'Vui lòng truy cập từ domain chính thức: https://www.projectvtuber.com'
-      });
-    }
-    
-    console.log(`Referer ${refererOrigin} is allowed`);
-  } catch (error) {
-    // If referer URL is invalid, allow in development
-    if (process.env.NODE_ENV !== 'production') {
-      console.log('Invalid referer URL - ALLOWING in development');
-      return next();
-    }
-    // Block in production
-    console.log('Invalid referer URL - BLOCKING in production');
+  const refererUrl = new URL(referer);
+  const refererOrigin = refererUrl.origin;
+  
+  if (!allowedOrigins.includes(refererOrigin)) {
+    console.log(`Referer ${refererOrigin} is NOT allowed - blocking request`);
     return res.status(403).json({
-      error: 'Truy cập không được phép',
+      error: 'Truy cập không được phép từ domain này',
       message: 'Vui lòng truy cập từ domain chính thức: https://www.projectvtuber.com'
     });
   }
   
+  console.log(`Referer ${refererOrigin} is allowed`);
   next();
 });
 
 // Additional security: Block common API testing tools
 app.use('/api', (req, res, next) => {
   const userAgent = req.headers['user-agent'] || '';
-  
-  // Skip for OPTIONS requests and health/test endpoints
-  if (req.method === 'OPTIONS' || req.path === '/api/health' || req.path === '/api/test') {
-    return next();
-  }
-  
-  // Only block in production
-  if (process.env.NODE_ENV !== 'production') {
-    return next();
-  }
-  
   const blockedTools = [
     'postman',
     'insomnia',
     'curl',
     'wget',
     'python-requests',
+    'axios',
+    'fetch',
     'httpie',
     'thunder client',
     'rest client'
   ];
+  
+  // Skip for OPTIONS requests
+  if (req.method === 'OPTIONS') {
+    return next();
+  }
   
   const lowerUserAgent = userAgent.toLowerCase();
   const isBlockedTool = blockedTools.some(tool => lowerUserAgent.includes(tool));
@@ -294,11 +232,8 @@ const userSchema = new mongoose.Schema({
   zalo: String,
   phone: String,
   website: String,
-  profile_email: { type: String, unique: true, sparse: true }, // Added profile_email field with sparse index
-  vote_bio: { type: String, default: '' }, // Mô tả ngắn riêng cho mục vote
-  vtuber_description: String, // Added vtuber_description
-  artist_description: String // Added artist_description
-}, { timestamps: true });
+  profile_email: { type: String, unique: true } // Added profile_email field
+});
 const User = mongoose.model('User', userSchema);
 
 // Commission Schema
@@ -342,27 +277,6 @@ const voteSchema = new mongoose.Schema({
 });
 const Vote = mongoose.model('Vote', voteSchema);
 
-// VoteSpotlight Schema for Spotlight voting (VTuber & Artist)
-const voteSpotlightSchema = new mongoose.Schema({
-  voter_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  voted_user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  type: { type: String, enum: ['vtuber', 'artist'], required: true },
-  created_at: { type: Date, default: Date.now }
-});
-const VoteSpotlight = mongoose.model('VoteSpotlight', voteSpotlightSchema);
-
-// Feedback Schema
-const feedbackSchema = new mongoose.Schema({
-  user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  name: { type: String, required: true },
-  email: { type: String, required: true },
-  subject: { type: String, required: true },
-  message: { type: String, required: true },
-  created_at: { type: Date, default: Date.now }
-});
-
-const Feedback = mongoose.model('Feedback', feedbackSchema);
-
 // Helper function to extract public_id from Cloudinary URL
 function extractPublicIdFromCloudinaryUrl(url) {
   if (!url || !url.includes('cloudinary.com')) {
@@ -401,7 +315,7 @@ function comparePassword(password, hashedPassword) {
 // Helper function to generate JWT token
 function generateToken(user) {
   return jwt.sign(
-    { id: user._id, username: user.username, email: user.email },
+    { id: user.id, username: user.username, email: user.email },
     JWT_SECRET,
     { expiresIn: '7d' }
   );
@@ -519,11 +433,6 @@ app.post('/api/auth/register', async (req, res) => {
       if (error.keyPattern.email) {
         return res.status(400).json({ error: 'Email đã được sử dụng' });
       }
-      if (error.keyPattern.profile_email) {
-        return res.status(400).json({ error: 'Profile email đã được sử dụng' });
-      }
-      // Generic duplicate key error
-      return res.status(400).json({ error: 'Thông tin đã tồn tại trong hệ thống' });
     }
     res.status(500).json({ error: 'Lỗi server' });
   }
@@ -551,9 +460,7 @@ app.post('/api/auth/login', async (req, res) => {
         id: user._id,
         username: user.username,
         email: user.email,
-        avatar: user.avatar,
-        badge: user.badge || (user.badges && user.badges[0]) || 'member',
-        badges: user.badges && user.badges.length > 0 ? user.badges : (user.badge ? [user.badge] : ['member'])
+        avatar: user.avatar
       },
       token
     });
@@ -569,18 +476,7 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
     if (!user) {
       return res.status(404).json({ error: 'Người dùng không tồn tại' });
     }
-    res.json({ user: {
-      id: user._id,
-      username: user.username,
-      email: user.email,
-      avatar: user.avatar,
-      bio: user.bio,
-      facebook: user.facebook,
-      website: user.website,
-      profile_email: user.profile_email,
-      badge: user.badge || (user.badges && user.badges[0]) || 'member',
-      badges: user.badges && user.badges.length > 0 ? user.badges : (user.badge ? [user.badge] : ['member'])
-    }});
+    res.json({ user });
   } catch (error) {
     res.status(500).json({ error: 'Lỗi server' });
   }
@@ -606,20 +502,7 @@ app.get('/api/users/:id', async (req, res) => {
       return res.status(404).json({ error: 'Người dùng không tồn tại' });
     }
 
-    res.json({ user: {
-      id: user._id,
-      username: user.username,
-      email: user.email,
-      avatar: user.avatar,
-      bio: user.bio,
-      facebook: user.facebook,
-      website: user.website,
-      profile_email: user.profile_email,
-      vtuber_description: user.vtuber_description,
-      artist_description: user.artist_description,
-      badge: user.badge || (user.badges && user.badges[0]) || 'member',
-      badges: user.badges && user.badges.length > 0 ? user.badges : (user.badge ? [user.badge] : ['member'])
-    }});
+    res.json({ user });
   } catch (error) {
     return res.status(500).json({ error: 'Lỗi server' });
   }
@@ -1160,9 +1043,8 @@ app.post('/api/vote/vtuber', authenticateToken, async (req, res) => {
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    const existingVote = await VoteSpotlight.findOne({
+    const existingVote = await Vote.findOne({
       voter_id,
-      type: 'vtuber',
       created_at: {
         $gte: today,
         $lt: tomorrow
@@ -1174,10 +1056,9 @@ app.post('/api/vote/vtuber', authenticateToken, async (req, res) => {
     }
 
     // Create new vote
-    const newVote = await VoteSpotlight.create({
+    const newVote = await Vote.create({
       voter_id,
-      voted_user_id: voted_vtuber_id,
-      type: 'vtuber',
+      voted_vtuber_id,
       created_at: new Date()
     });
 
@@ -1192,85 +1073,48 @@ app.post('/api/vote/vtuber', authenticateToken, async (req, res) => {
   }
 });
 
-// Vote for an Artist (1 vote per day per user)
-app.post('/api/vote/artist', authenticateToken, async (req, res) => {
-  try {
-    const { voted_artist_id } = req.body;
-    const voter_id = req.user.id;
-    
-    if (!voted_artist_id) {
-      return res.status(400).json({ error: 'Vui lòng chọn Artist để vote' });
-    }
-    
-    // Check if voted user exists and has Artist badge (verified, trusted, quality, partner)
-    const votedUser = await User.findById(voted_artist_id);
-    if (!votedUser) {
-      return res.status(404).json({ error: 'Artist không tồn tại' });
-    }
-    
-    const validArtistBadges = ['verified', 'trusted', 'quality', 'partner'];
-    if (!votedUser.badges || !votedUser.badges.some(b => validArtistBadges.includes(b))) {
-      return res.status(400).json({ error: 'Chỉ có thể vote cho user là Artist hợp lệ' });
-    }
-    
-    if (voter_id === voted_artist_id) {
-      return res.status(400).json({ error: 'Không thể vote cho chính mình' });
-    }
-    
-    // Check if user has already voted for Artist today
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    
-    const existingVote = await VoteSpotlight.findOne({
-      voter_id,
-      type: 'artist',
-      created_at: { $gte: today, $lt: tomorrow }
-    });
-    
-    if (existingVote) {
-      return res.status(400).json({ error: 'Bạn đã vote Artist hôm nay. Vui lòng thử lại vào ngày mai' });
-    }
-    
-    // Create new vote
-    const newVote = await VoteSpotlight.create({
-      voter_id,
-      voted_user_id: voted_artist_id,
-      type: 'artist',
-      created_at: new Date()
-    });
-    
-    res.status(201).json({ message: 'Vote Artist thành công!', vote: newVote });
-  } catch (error) {
-    console.error('Vote Artist error:', error);
-    res.status(500).json({ error: 'Lỗi server' });
-  }
-});
-
 // Get VTuber spotlight (top 5 VTubers by votes)
 app.get('/api/spotlight/vtubers', async (req, res) => {
   try {
     // Get top 5 VTubers by vote count
-    const topVTubers = await VoteSpotlight.aggregate([
-      { $match: { type: 'vtuber' } },
-      { $group: { _id: '$voted_user_id', voteCount: { $sum: 1 } } },
-      { $sort: { voteCount: -1 } },
-      { $limit: 5 },
-      { $lookup: { from: 'users', localField: '_id', foreignField: '_id', as: 'vtuber' } },
-      { $unwind: '$vtuber' },
-      { $match: { 'vtuber.badges': { $in: ['vtuber'] } } },
-      { $project: { 
-        _id: 1, 
-        voteCount: 1, 
-        username: '$vtuber.username', 
-        avatar: '$vtuber.avatar', 
-        bio: '$vtuber.bio',
-        vtuber_description: '$vtuber.vtuber_description',
-        artist_description: '$vtuber.artist_description',
-        facebook: '$vtuber.facebook',
-        website: '$vtuber.website'
-      } }
+    const topVTubers = await Vote.aggregate([
+      {
+        $group: {
+          _id: '$voted_vtuber_id',
+          voteCount: { $sum: 1 }
+        }
+      },
+      {
+        $sort: { voteCount: -1 }
+      },
+      {
+        $limit: 5
+      },
+      {
+        $lookup: {
+          from: 'users',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'vtuber'
+        }
+      },
+      {
+        $unwind: '$vtuber'
+      },
+      {
+        $match: {
+          'vtuber.badges': { $in: ['vtuber'] }
+        }
+      },
+      {
+        $project: {
+          _id: 1,
+          voteCount: 1,
+          username: '$vtuber.username',
+          avatar: '$vtuber.avatar',
+          bio: '$vtuber.bio'
+        }
+      }
     ]);
 
     res.json({
@@ -1283,76 +1127,30 @@ app.get('/api/spotlight/vtubers', async (req, res) => {
   }
 });
 
-// Get Artist spotlight (top 5 Artists by votes)
-app.get('/api/spotlight/artists', async (req, res) => {
-  try {
-    // Get top 5 Artists by vote count
-    const validArtistBadges = ['verified', 'trusted', 'quality', 'partner'];
-    const topArtists = await VoteSpotlight.aggregate([
-      { $match: { type: 'artist' } },
-      { $group: { _id: '$voted_user_id', voteCount: { $sum: 1 } } },
-      { $sort: { voteCount: -1 } },
-      { $limit: 5 },
-      { $lookup: { from: 'users', localField: '_id', foreignField: '_id', as: 'artist' } },
-      { $unwind: '$artist' },
-      { $match: { 'artist.badges': { $in: validArtistBadges } } },
-      { $project: { 
-        _id: 1, 
-        voteCount: 1, 
-        username: '$artist.username', 
-        avatar: '$artist.avatar', 
-        bio: '$artist.bio',
-        vtuber_description: '$artist.vtuber_description',
-        artist_description: '$artist.artist_description',
-        facebook: '$artist.facebook',
-        website: '$artist.website'
-      } }
-    ]);
-    res.json({ spotlight: topArtists });
-  } catch (error) {
-    console.error('Spotlight Artist error:', error);
-    res.status(500).json({ error: 'Lỗi server' });
-  }
-});
-
-// Get user's vote status for today (both vtuber & artist)
+// Get user's vote status for today
 app.get('/api/vote/status', authenticateToken, async (req, res) => {
   try {
     const voter_id = req.user.id;
+    
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
-    
-    // VTuber vote status
-    const vtuberVote = await VoteSpotlight.findOne({
+
+    const todayVote = await Vote.findOne({
       voter_id,
-      type: 'vtuber',
-      created_at: { $gte: today, $lt: tomorrow }
-    }).populate('voted_user_id', 'username avatar badge badges');
-    
-    // Artist vote status
-    const artistVote = await VoteSpotlight.findOne({
-      voter_id,
-      type: 'artist',
-      created_at: { $gte: today, $lt: tomorrow }
-    }).populate('voted_user_id', 'username avatar badge badges');
-    
-    res.json({
-      vtuber: {
-        hasVotedToday: !!vtuberVote,
-        todayVote: vtuberVote ? {
-          voted_user: vtuberVote.voted_user_id,
-          created_at: vtuberVote.created_at
-        } : null
-      },
-      artist: {
-        hasVotedToday: !!artistVote,
-        todayVote: artistVote ? {
-          voted_user: artistVote.voted_user_id,
-          created_at: artistVote.created_at
-        } : null
+      created_at: {
+        $gte: today,
+        $lt: tomorrow
       }
+    }).populate('voted_vtuber_id', 'username avatar');
+
+    res.json({
+      hasVotedToday: !!todayVote,
+      todayVote: todayVote ? {
+        voted_vtuber: todayVote.voted_vtuber_id,
+        created_at: todayVote.created_at
+      } : null
     });
 
   } catch (error) {
@@ -1365,7 +1163,7 @@ app.get('/api/vote/status', authenticateToken, async (req, res) => {
 app.get('/api/vtubers', async (req, res) => {
   try {
     const vtubers = await User.find({ badges: { $in: ['vtuber'] } })
-      .select('username avatar bio vote_bio')
+      .select('username avatar bio')
       .sort({ username: 1 });
 
     res.json({
@@ -1374,96 +1172,6 @@ app.get('/api/vtubers', async (req, res) => {
 
   } catch (error) {
     console.error('Get VTubers error:', error);
-    res.status(500).json({ error: 'Lỗi server' });
-  }
-});
-
-// Get all users for voting (with optional badge filter)
-app.get('/api/users/vote', async (req, res) => {
-  try {
-    console.log('=== /api/users/vote API called ===');
-    const { badge } = req.query;
-    console.log('Query badge parameter:', badge);
-    
-    let filter = {};
-    
-    if (badge) {
-      // Filter users who have the specified badge in their badges array
-      filter.badges = { $in: [badge] };
-      console.log('Filter applied:', JSON.stringify(filter));
-    } else {
-      console.log('No badge filter - getting all users');
-    }
-    
-    const users = await User.find(filter)
-      .select('username avatar bio vote_bio badge badges vtuber_description artist_description facebook website')
-      .sort({ username: 1 });
-
-    console.log('Query successful, found users:', users.length);
-    
-    res.json({
-      users
-    });
-
-  } catch (error) {
-    console.error('=== /api/users/vote ERROR ===');
-    console.error('Error message:', error.message);
-    
-    res.status(500).json({ 
-      error: 'Lỗi server',
-      details: error.message
-    });
-  }
-});
-
-// POST /api/feedback - Save feedback
-app.post('/api/feedback', authenticateToken, async (req, res) => {
-  try {
-    const { message, name, email, subject } = req.body;
-    if (!message || !name || !email || !subject || typeof message !== 'string' || message.trim().length === 0) {
-      return res.status(400).json({ error: 'Thông tin feedback không hợp lệ' });
-    }
-    const user = await User.findById(req.user.id);
-    const feedback = await Feedback.create({
-      user_id: user._id,
-      name: name.trim(),
-      email: email.trim(),
-      subject: subject.trim(),
-      message: message.trim()
-    });
-    res.status(201).json({ message: 'Gửi feedback thành công', feedback });
-  } catch (error) {
-    res.status(500).json({ error: 'Lỗi server' });
-  }
-});
-
-// GET /api/feedback - Get all feedback (admin email only)
-app.get('/api/feedback', authenticateToken, async (req, res) => {
-  try {
-    const user = await User.findById(req.user.id);
-    if (!user || user.email !== 'huynguyen86297@gmail.com') {
-      return res.status(403).json({ error: 'Không có quyền truy cập feedback' });
-    }
-    const feedbacks = await Feedback.find({}).sort({ created_at: -1 }).populate('user_id', 'username email avatar');
-    res.json({ feedbacks });
-  } catch (error) {
-    res.status(500).json({ error: 'Lỗi server' });
-  }
-});
-
-// DELETE /api/feedback/:id - Admin delete feedback
-app.delete('/api/feedback/:id', authenticateToken, async (req, res) => {
-  try {
-    const user = await User.findById(req.user.id);
-    if (!user || user.email !== 'huynguyen86297@gmail.com') {
-      return res.status(403).json({ error: 'Không có quyền xóa feedback' });
-    }
-    const feedback = await Feedback.findByIdAndDelete(req.params.id);
-    if (!feedback) {
-      return res.status(404).json({ error: 'Feedback không tồn tại' });
-    }
-    res.json({ message: 'Đã xóa feedback thành công' });
-  } catch (error) {
     res.status(500).json({ error: 'Lỗi server' });
   }
 });
