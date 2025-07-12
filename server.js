@@ -294,10 +294,12 @@ const orderSchema = new mongoose.Schema({
 });
 const Order = mongoose.model('Order', orderSchema);
 
-// Vote Schema for VTuber voting
+// Vote Schema for VTuber and Artist voting
 const voteSchema = new mongoose.Schema({
   voter_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  voted_vtuber_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  voted_vtuber_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // For VTuber votes
+  voted_artist_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // For Artist votes
+  vote_type: { type: String, enum: ['vtuber', 'artist'], required: true }, // Type of vote
   created_at: { type: Date, default: Date.now }
 });
 const Vote = mongoose.model('Vote', voteSchema);
@@ -1065,7 +1067,7 @@ app.post('/api/vote/vtuber', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Không thể vote cho chính mình' });
     }
 
-    // Check if user has already voted today
+    // Check if user has already voted today for VTuber
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);
@@ -1073,6 +1075,7 @@ app.post('/api/vote/vtuber', authenticateToken, async (req, res) => {
 
     const existingVote = await Vote.findOne({
       voter_id,
+      vote_type: 'vtuber',
       created_at: {
         $gte: today,
         $lt: tomorrow
@@ -1080,23 +1083,88 @@ app.post('/api/vote/vtuber', authenticateToken, async (req, res) => {
     });
 
     if (existingVote) {
-      return res.status(400).json({ error: 'Bạn đã vote hôm nay. Vui lòng thử lại vào ngày mai' });
+      return res.status(400).json({ error: 'Bạn đã vote VTuber hôm nay. Vui lòng thử lại vào ngày mai' });
     }
 
     // Create new vote
     const newVote = await Vote.create({
       voter_id,
       voted_vtuber_id,
+      vote_type: 'vtuber',
       created_at: new Date()
     });
 
     res.status(201).json({
-      message: 'Vote thành công!',
+      message: 'Vote VTuber thành công!',
       vote: newVote
     });
 
   } catch (error) {
     console.error('Vote error:', error);
+    res.status(500).json({ error: 'Lỗi server' });
+  }
+});
+
+// Vote for an Artist (1 vote per day per user)
+app.post('/api/vote/artist', authenticateToken, async (req, res) => {
+  try {
+    const { voted_artist_id } = req.body;
+    const voter_id = req.user.id;
+
+    if (!voted_artist_id) {
+      return res.status(400).json({ error: 'Vui lòng chọn Artist để vote' });
+    }
+
+    // Check if voted user exists and has Artist badge
+    const votedUser = await User.findById(voted_artist_id);
+    if (!votedUser) {
+      return res.status(404).json({ error: 'Artist không tồn tại' });
+    }
+
+    const validArtistBadges = ['verified', 'trusted', 'quality', 'partner'];
+    if (!votedUser.badges || !votedUser.badges.some(badge => validArtistBadges.includes(badge))) {
+      return res.status(400).json({ error: 'Chỉ có thể vote cho user có badge Artist hợp lệ' });
+    }
+
+    // Check if voter is trying to vote for themselves
+    if (voter_id === voted_artist_id) {
+      return res.status(400).json({ error: 'Không thể vote cho chính mình' });
+    }
+
+    // Check if user has already voted today for Artist
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const existingVote = await Vote.findOne({
+      voter_id,
+      vote_type: 'artist',
+      created_at: {
+        $gte: today,
+        $lt: tomorrow
+      }
+    });
+
+    if (existingVote) {
+      return res.status(400).json({ error: 'Bạn đã vote Artist hôm nay. Vui lòng thử lại vào ngày mai' });
+    }
+
+    // Create new vote
+    const newVote = await Vote.create({
+      voter_id,
+      voted_artist_id,
+      vote_type: 'artist',
+      created_at: new Date()
+    });
+
+    res.status(201).json({
+      message: 'Vote Artist thành công!',
+      vote: newVote
+    });
+
+  } catch (error) {
+    console.error('Vote artist error:', error);
     res.status(500).json({ error: 'Lỗi server' });
   }
 });
@@ -1155,6 +1223,60 @@ app.get('/api/spotlight/vtubers', async (req, res) => {
   }
 });
 
+// Get Artist spotlight (top 5 Artists by votes)
+app.get('/api/spotlight/artists', async (req, res) => {
+  try {
+    // Get top 5 Artists by vote count
+    const topArtists = await Vote.aggregate([
+      {
+        $group: {
+          _id: '$voted_artist_id',
+          voteCount: { $sum: 1 }
+        }
+      },
+      {
+        $sort: { voteCount: -1 }
+      },
+      {
+        $limit: 5
+      },
+      {
+        $lookup: {
+          from: 'users',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'artist'
+        }
+      },
+      {
+        $unwind: '$artist'
+      },
+      {
+        $match: {
+          'artist.badges': { $in: ['verified', 'trusted', 'quality', 'partner'] }
+        }
+      },
+      {
+        $project: {
+          _id: 1,
+          voteCount: 1,
+          username: '$artist.username',
+          avatar: '$artist.avatar',
+          bio: '$artist.bio'
+        }
+      }
+    ]);
+
+    res.json({
+      spotlight: topArtists
+    });
+
+  } catch (error) {
+    console.error('Spotlight artists error:', error);
+    res.status(500).json({ error: 'Lỗi server' });
+  }
+});
+
 // Get user's vote status for today
 app.get('/api/vote/status', authenticateToken, async (req, res) => {
   try {
@@ -1165,20 +1287,33 @@ app.get('/api/vote/status', authenticateToken, async (req, res) => {
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    const todayVote = await Vote.findOne({
+    // Get today's votes for both VTuber and Artist
+    const todayVotes = await Vote.find({
       voter_id,
       created_at: {
         $gte: today,
         $lt: tomorrow
       }
-    }).populate('voted_vtuber_id', 'username avatar');
+    }).populate('voted_vtuber_id voted_artist_id', 'username avatar');
+
+    const vtuberVote = todayVotes.find(vote => vote.vote_type === 'vtuber');
+    const artistVote = todayVotes.find(vote => vote.vote_type === 'artist');
 
     res.json({
-      hasVotedToday: !!todayVote,
-      todayVote: todayVote ? {
-        voted_vtuber: todayVote.voted_vtuber_id,
-        created_at: todayVote.created_at
-      } : null
+      vtuber: {
+        hasVotedToday: !!vtuberVote,
+        todayVote: vtuberVote ? {
+          voted_user: vtuberVote.voted_vtuber_id,
+          created_at: vtuberVote.created_at
+        } : null
+      },
+      artist: {
+        hasVotedToday: !!artistVote,
+        todayVote: artistVote ? {
+          voted_user: artistVote.voted_artist_id,
+          created_at: artistVote.created_at
+        } : null
+      }
     });
 
   } catch (error) {
@@ -1200,6 +1335,34 @@ app.get('/api/vtubers', async (req, res) => {
 
   } catch (error) {
     console.error('Get VTubers error:', error);
+    res.status(500).json({ error: 'Lỗi server' });
+  }
+});
+
+// Get users for voting (with optional badge filter)
+app.get('/api/users/vote', async (req, res) => {
+  try {
+    const { badge } = req.query;
+    let query = {};
+    
+    if (badge) {
+      if (badge === 'vtuber') {
+        query.badges = { $in: ['vtuber'] };
+      } else if (badge === 'artist') {
+        query.badges = { $in: ['verified', 'trusted', 'quality', 'partner'] };
+      }
+    }
+
+    const users = await User.find(query)
+      .select('username avatar bio badges')
+      .sort({ username: 1 });
+
+    res.json({
+      users
+    });
+
+  } catch (error) {
+    console.error('Get users for vote error:', error);
     res.status(500).json({ error: 'Lỗi server' });
   }
 });
