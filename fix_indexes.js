@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 // MongoDB connection
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/vtuberverse';
 
-async function fixProfileEmailIndex() {
+async function fixIndexes() {
   try {
     console.log('Connecting to MongoDB...');
     await mongoose.connect(MONGODB_URI);
@@ -34,9 +34,9 @@ async function fixProfileEmailIndex() {
     console.log('Index fix completed successfully!');
     process.exit(0);
   } catch (error) {
-    console.error('Error fixing index:', error);
+    console.error('Error fixing indexes:', error);
     process.exit(1);
   }
 }
 
-fixProfileEmailIndex(); 
+fixIndexes(); 
