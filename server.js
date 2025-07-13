@@ -1454,11 +1454,11 @@ app.get('/api/vtubers', async (req, res) => {
 // Get users for voting (with optional badge filter)
 app.get('/api/users/vote', async (req, res) => {
   try {
-    console.log('GET /api/users/vote called with query:', req.query);
-    
+    console.log('--- /api/users/vote called ---');
+    console.log('Query params:', req.query);
+    console.log('Request headers:', req.headers);
     const { badge } = req.query;
     let query = {};
-    
     if (badge) {
       if (badge === 'vtuber') {
         query.badges = { $in: ['vtuber'] };
@@ -1466,30 +1466,33 @@ app.get('/api/users/vote', async (req, res) => {
         query.badges = { $in: ['verified'] };
       }
     }
-
-    console.log('MongoDB query:', JSON.stringify(query));
-
-    // Add error handling for database connection
+    console.log('MongoDB query object:', JSON.stringify(query));
+    console.log('Mongoose connection readyState:', mongoose.connection.readyState);
     if (!mongoose.connection.readyState) {
       console.error('Database not connected');
       return res.status(500).json({ error: 'Database connection error' });
     }
-
     const users = await User.find(query)
       .select('username avatar bio badges vtuber_description artist_description')
       .sort({ username: 1 });
-
     console.log(`Found ${users.length} users for voting`);
-
-    res.json({
-      users
-    });
-
+    if (users.length > 0) {
+      console.log('Sample user:', users[0]);
+    } else {
+      console.log('No users found for this query.');
+    }
+    res.json({ users });
   } catch (error) {
     console.error('Get users for vote error:', error);
-    console.error('Error stack:', error.stack);
-    console.error('Error name:', error.name);
-    console.error('Error message:', error.message);
+    if (error && error.stack) {
+      console.error('Error stack:', error.stack);
+    }
+    if (error && error.name) {
+      console.error('Error name:', error.name);
+    }
+    if (error && error.message) {
+      console.error('Error message:', error.message);
+    }
     res.status(500).json({ 
       error: 'Lỗi server', 
       details: error.message,
