@@ -389,6 +389,30 @@ app.get('/api/test', (req, res) => {
   });
 });
 
+// Test endpoint for commissions
+app.get('/api/test/commissions', async (req, res) => {
+  try {
+    console.log('Testing commission data...');
+    
+    // Get raw commission count
+    const count = await Commission.countDocuments();
+    console.log('Total commissions in database:', count);
+    
+    // Get a sample commission
+    const sampleCommission = await Commission.findOne().lean();
+    console.log('Sample commission:', sampleCommission);
+    
+    res.json({ 
+      message: 'Commission test successful',
+      totalCount: count,
+      sampleCommission: sampleCommission
+    });
+  } catch (error) {
+    console.error('Commission test error:', error);
+    res.status(500).json({ error: 'Commission test failed: ' + error.message });
+  }
+});
+
 // Health check endpoint with origin validation info
 app.get('/api/health', (req, res) => {
   const origin = req.headers.origin;
@@ -475,7 +499,7 @@ app.post('/api/auth/register', async (req, res) => {
         return res.status(400).json({ error: 'Email đã được sử dụng' });
       }
       if (error.keyPattern.profile_email) {
-        return res.status(400).json({ error: 'Profile email đã được sử dụng' });
+        return res.status(400).json({ error: 'Profile email đã được sử dụng bởi người dùng khác' });
       }
     }
     res.status(500).json({ error: 'Lỗi server' });
@@ -577,6 +601,18 @@ app.put('/api/users/:id', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Bio không được vượt quá 50 ký tự' });
     }
 
+    // Check if profile_email is being changed and if it's already used by another user
+    if (profile_email && profile_email !== user.profile_email) {
+      const existingUser = await User.findOne({ 
+        profile_email: profile_email,
+        _id: { $ne: userId } // Exclude current user
+      });
+      
+      if (existingUser) {
+        return res.status(400).json({ error: 'Profile email đã được sử dụng bởi người dùng khác' });
+      }
+    }
+
     // Update user fields
     user.avatar = avatar;
     user.bio = bio;
@@ -638,12 +674,38 @@ app.post('/api/commissions', authenticateToken, async (req, res) => {
 app.get('/api/commissions', async (req, res) => {
   try {
     console.log('Fetching all commissions...');
-    const commissions = await Commission.find().sort({ created_at: -1 });
+    
+    // Use lean() for better performance and to avoid mongoose document issues
+    const commissions = await Commission.find()
+      .sort({ created_at: -1 })
+      .lean()
+      .exec();
+    
     console.log(`Found ${commissions.length} commissions`);
-    res.json({ commissions });
+    
+    // Ensure all commissions have required fields
+    const validatedCommissions = commissions.map(commission => ({
+      _id: commission._id,
+      title: commission.title || '',
+      description: commission.description || '',
+      type: commission.type || 1,
+      price: commission.price || 0,
+      currency: commission.currency || 'VND',
+      status: commission.status || 'open',
+      user_id: commission.user_id,
+      artist_name: commission.artist_name || '',
+      artist_avatar: commission.artist_avatar || '',
+      deadline: commission.deadline || '',
+      requirements: commission.requirements || [],
+      examples: commission.examples || [],
+      tags: commission.tags || [],
+      created_at: commission.created_at || new Date()
+    }));
+    
+    res.json({ commissions: validatedCommissions });
   } catch (error) {
     console.error('Error fetching commissions:', error);
-    res.status(500).json({ error: 'Lỗi server khi tải commissions' });
+    res.status(500).json({ error: 'Lỗi server khi tải commissions: ' + error.message });
   }
 });
 
@@ -1495,6 +1557,30 @@ app.delete('/api/feedback/:id', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Delete feedback error:', error);
     res.status(500).json({ error: 'Lỗi server' });
+  }
+});
+
+// Test endpoint for commissions
+app.get('/api/test/commissions', async (req, res) => {
+  try {
+    console.log('Testing commission data...');
+    
+    // Get raw commission count
+    const count = await Commission.countDocuments();
+    console.log('Total commissions in database:', count);
+    
+    // Get a sample commission
+    const sampleCommission = await Commission.findOne().lean();
+    console.log('Sample commission:', sampleCommission);
+    
+    res.json({ 
+      message: 'Commission test successful',
+      totalCount: count,
+      sampleCommission: sampleCommission
+    });
+  } catch (error) {
+    console.error('Commission test error:', error);
+    res.status(500).json({ error: 'Commission test failed: ' + error.message });
   }
 });
 
