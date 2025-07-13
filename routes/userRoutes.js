@@ -71,7 +71,7 @@ router.post('/send-verification', emailVerificationLimiter, async (req, res) => 
 // Xác minh mã và đăng ký
 router.post('/verify-and-register', registrationLimiter, async (req, res) => {
   try {
-    const { username, email, password, verificationCode, youtube, twitch, twitter, instagram } = req.body;
+    const { username, email, password, verificationCode } = req.body;
 
     if (!username || !email || !password || !verificationCode) {
       return res.status(400).json({ message: 'Tất cả các trường là bắt buộc' });
@@ -103,10 +103,6 @@ router.post('/verify-and-register', registrationLimiter, async (req, res) => {
       email,
       password: hashedPassword,
       emailVerified: true,
-      youtube: youtube || '',
-      twitch: twitch || '',
-      twitter: twitter || '',
-      instagram: instagram || '',
       badges: ['member'] // Default badge
     });
 
