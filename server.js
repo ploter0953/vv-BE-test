@@ -1773,6 +1773,28 @@ app.get('/api/test/commissions', async (req, res) => {
   }
 });
 
+// Cleanup expired temporary users
+async function cleanupExpiredTempUsers() {
+  try {
+    const result = await User.deleteMany({
+      emailVerified: false,
+      emailVerificationExpires: { $lt: new Date() }
+    });
+    
+    if (result.deletedCount > 0) {
+      console.log(`Cleaned up ${result.deletedCount} expired temporary users`);
+    }
+  } catch (error) {
+    console.error('Cleanup error:', error);
+  }
+}
+
+// Run cleanup every 30 minutes
+setInterval(cleanupExpiredTempUsers, 30 * 60 * 1000);
+
+// Also run cleanup on startup
+cleanupExpiredTempUsers();
+
 // Test endpoint for debugging
 app.get('/api/test/debug', async (req, res) => {
   try {
@@ -1818,53 +1840,75 @@ app.get('/api/test/debug', async (req, res) => {
 // Gửi mã xác minh email
 app.post('/api/users/send-verification', async (req, res) => {
   try {
-    console.log('=== SEND VERIFICATION REQUEST ===');
-    console.log('Headers:', req.headers);
-    console.log('Body:', req.body);
-    console.log('Origin:', req.headers.origin);
-    console.log('Referer:', req.headers.referer);
-    console.log('User-Agent:', req.headers['user-agent']);
-    
     const { email } = req.body;
 
     if (!email) {
-      console.log('ERROR: No email provided');
       return res.status(400).json({ message: 'Email là bắt buộc' });
     }
 
-    console.log('Email received:', email);
-
-    // Check if email already exists
-    const existingUser = await User.findOne({ email });
+    // Check if email already exists in permanent users
+    const existingUser = await User.findOne({ 
+      email,
+      emailVerified: { $ne: false } // Exclude temporary users (emailVerified: false)
+    });
+    
     if (existingUser) {
-      console.log('ERROR: Email already exists:', email);
       return res.status(400).json({ message: 'Email đã được sử dụng' });
     }
 
-    console.log('Email is unique, proceeding...');
+    // Check if there's an expired temporary user and delete it
+    const expiredTempUser = await User.findOne({
+      email,
+      emailVerified: false,
+      emailVerificationExpires: { $lt: new Date() }
+    });
+    
+    if (expiredTempUser) {
+      await expiredTempUser.deleteOne();
+      console.log('Deleted expired temporary user for:', email);
+    }
 
-    // Generate verification code
+    // Check if there's a valid temporary user (not expired)
+    const validTempUser = await User.findOne({
+      email,
+      emailVerified: false,
+      emailVerificationExpires: { $gt: new Date() }
+    });
+
+    if (validTempUser) {
+      // Update existing temporary user with new code
+      const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+      
+      validTempUser.emailVerificationCode = verificationCode;
+      validTempUser.emailVerificationExpires = expiresAt;
+      await validTempUser.save();
+      
+      // Send verification email
+      const emailService = require('./services/emailService');
+      await emailService.sendVerificationEmail(email, verificationCode);
+      
+      return res.json({ message: 'Mã xác minh mới đã được gửi đến email của bạn' });
+    }
+
+    // Create new temporary user
     const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
-    console.log('Generated code:', verificationCode);
-
-    // Store verification code temporarily
     const tempUser = new User({
       email,
       emailVerificationCode: verificationCode,
       emailVerificationExpires: expiresAt,
+      emailVerified: false, // Mark as temporary user
       username: 'temp_' + Date.now(), // temporary username
       password: 'temp_password' // temporary password
     });
 
     await tempUser.save();
-    console.log('Temporary user saved');
 
     // Send verification email
     const emailService = require('./services/emailService');
     await emailService.sendVerificationEmail(email, verificationCode);
-    console.log('Email sent successfully');
 
     res.json({ message: 'Mã xác minh đã được gửi đến email của bạn' });
   } catch (err) {
@@ -1886,7 +1930,8 @@ app.post('/api/users/verify-and-register', async (req, res) => {
     const tempUser = await User.findOne({
       email,
       emailVerificationCode: verificationCode,
-      emailVerificationExpires: { $gt: new Date() }
+      emailVerificationExpires: { $gt: new Date() },
+      emailVerified: false // Only temporary users
     });
 
     if (!tempUser) {
@@ -1968,6 +2013,28 @@ app.use((req, res) => {
     timestamp: new Date().toISOString()
   });
 });
+
+// Cleanup expired temporary users
+async function cleanupExpiredTempUsers() {
+  try {
+    const result = await User.deleteMany({
+      emailVerified: false,
+      emailVerificationExpires: { $lt: new Date() }
+    });
+    
+    if (result.deletedCount > 0) {
+      console.log(`Cleaned up ${result.deletedCount} expired temporary users`);
+    }
+  } catch (error) {
+    console.error('Cleanup error:', error);
+  }
+}
+
+// Run cleanup every 30 minutes
+setInterval(cleanupExpiredTempUsers, 30 * 60 * 1000);
+
+// Also run cleanup on startup
+cleanupExpiredTempUsers();
 
 // Start server
 app.listen(PORT, '0.0.0.0', () => {
