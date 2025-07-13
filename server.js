@@ -1773,25 +1773,81 @@ app.get('/api/test/commissions', async (req, res) => {
   }
 });
 
+// Test endpoint for debugging
+app.get('/api/test/debug', async (req, res) => {
+  try {
+    console.log('=== DEBUG TEST ===');
+    
+    // Test 1: Environment variables
+    console.log('RESEND_API_KEY exists:', !!process.env.RESEND_API_KEY);
+    console.log('MONGODB_URI exists:', !!process.env.MONGODB_URI);
+    console.log('NODE_ENV:', process.env.NODE_ENV);
+    
+    // Test 2: Database connection
+    const dbStatus = mongoose.connection.readyState;
+    console.log('Database connection state:', dbStatus);
+    
+    // Test 3: Email service (without sending)
+    try {
+      const emailService = require('./services/emailService');
+      console.log('Email service loaded successfully');
+    } catch (emailError) {
+      console.error('Email service error:', emailError);
+    }
+    
+    res.json({
+      message: 'Debug test completed',
+      env: {
+        resendApiKey: !!process.env.RESEND_API_KEY,
+        mongodbUri: !!process.env.MONGODB_URI,
+        nodeEnv: process.env.NODE_ENV
+      },
+      database: {
+        connectionState: dbStatus,
+        connected: dbStatus === 1
+      }
+    });
+    
+  } catch (error) {
+    console.error('Debug test error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Email verification endpoints
 // Gửi mã xác minh email
 app.post('/api/users/send-verification', async (req, res) => {
   try {
+    console.log('=== SEND VERIFICATION REQUEST ===');
+    console.log('Headers:', req.headers);
+    console.log('Body:', req.body);
+    console.log('Origin:', req.headers.origin);
+    console.log('Referer:', req.headers.referer);
+    console.log('User-Agent:', req.headers['user-agent']);
+    
     const { email } = req.body;
 
     if (!email) {
+      console.log('ERROR: No email provided');
       return res.status(400).json({ message: 'Email là bắt buộc' });
     }
+
+    console.log('Email received:', email);
 
     // Check if email already exists
     const existingUser = await User.findOne({ email });
     if (existingUser) {
+      console.log('ERROR: Email already exists:', email);
       return res.status(400).json({ message: 'Email đã được sử dụng' });
     }
+
+    console.log('Email is unique, proceeding...');
 
     // Generate verification code
     const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    console.log('Generated code:', verificationCode);
 
     // Store verification code temporarily
     const tempUser = new User({
@@ -1803,10 +1859,12 @@ app.post('/api/users/send-verification', async (req, res) => {
     });
 
     await tempUser.save();
+    console.log('Temporary user saved');
 
     // Send verification email
     const emailService = require('./services/emailService');
     await emailService.sendVerificationEmail(email, verificationCode);
+    console.log('Email sent successfully');
 
     res.json({ message: 'Mã xác minh đã được gửi đến email của bạn' });
   } catch (err) {
