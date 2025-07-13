@@ -8,6 +8,22 @@ const userSchema = new mongoose.Schema({
   profile_email: { type: String }, // Public email for profile display
   avatar: { type: String },
   bio: { type: String },
+  description: { type: String },
+  vtuber_description: { type: String }, // New field for VTuber description
+  artist_description: { type: String },
+  facebook: { type: String },
+  website: { type: String },
+  // New social media fields
+  youtube: { type: String },
+  twitch: { type: String },
+  twitter: { type: String },
+  instagram: { type: String },
+  // Email verification fields
+  emailVerified: { type: Boolean, default: false },
+  emailVerificationCode: { type: String },
+  emailVerificationExpires: { type: Date },
+  // Badges field (array of badge names)
+  badges: [{ type: String }],
   social_links: {
     twitter: String,
     instagram: String,
