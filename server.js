@@ -1777,20 +1777,10 @@ app.get('/api/test/commissions', async (req, res) => {
 // Gửi mã xác minh email
 app.post('/api/users/send-verification', async (req, res) => {
   try {
-    const { email, captchaToken } = req.body;
+    const { email } = req.body;
 
-    if (!email || !captchaToken) {
-      return res.status(400).json({ message: 'Email và captcha token là bắt buộc' });
-    }
-
-    // Verify captcha (development mode bypass)
-    if (!captchaToken.startsWith('development_token_')) {
-      // In production, verify with Cloudflare
-      const emailService = require('./services/emailService');
-      const captchaValid = await emailService.verifyCaptcha(captchaToken);
-      if (!captchaValid) {
-        return res.status(400).json({ message: 'Captcha không hợp lệ' });
-      }
+    if (!email) {
+      return res.status(400).json({ message: 'Email là bắt buộc' });
     }
 
     // Check if email already exists
@@ -1814,13 +1804,9 @@ app.post('/api/users/send-verification', async (req, res) => {
 
     await tempUser.save();
 
-    // Send verification email (in development, just log it)
-    if (process.env.NODE_ENV === 'development') {
-      console.log(`Development mode: Verification code for ${email}: ${verificationCode}`);
-    } else {
-      const emailService = require('./services/emailService');
-      await emailService.sendVerificationEmail(email, verificationCode);
-    }
+    // Send verification email
+    const emailService = require('./services/emailService');
+    await emailService.sendVerificationEmail(email, verificationCode);
 
     res.json({ message: 'Mã xác minh đã được gửi đến email của bạn' });
   } catch (err) {

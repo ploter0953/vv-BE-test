@@ -51,34 +51,6 @@ const emailService = {
       console.error('Email service error:', error);
       throw new Error('Lỗi gửi email xác minh');
     }
-  },
-
-  // Verify Cloudflare Captcha
-  verifyCaptcha: async (token) => {
-    try {
-      // Allow development tokens for testing
-      if (token.startsWith('development_token_')) {
-        console.log('Development mode: Captcha verification bypassed');
-        return true;
-      }
-
-      const response = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          secret: process.env.CLOUDFLARE_SECRET_KEY,
-          response: token,
-        }),
-      });
-
-      const data = await response.json();
-      return data.success;
-    } catch (error) {
-      console.error('Captcha verification error:', error);
-      return false;
-    }
   }
 };
 
