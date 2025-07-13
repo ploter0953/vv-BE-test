@@ -301,7 +301,16 @@ const userSchema = new mongoose.Schema({
   website: String,
   profile_email: { type: String }, // Allow multiple users to have same profile_email
   vtuber_description: String,
-  artist_description: String
+  artist_description: String,
+  // Email verification fields
+  emailVerified: { type: Boolean, default: false },
+  emailVerificationCode: String,
+  emailVerificationExpires: Date,
+  // Social media fields
+  youtube: String,
+  twitch: String,
+  twitter: String,
+  instagram: String
 });
 const User = mongoose.model('User', userSchema);
 
@@ -548,7 +557,16 @@ app.post('/api/auth/register', async (req, res) => {
       phone: '',
       website: '',
       vtuber_description: '',
-      artist_description: ''
+      artist_description: '',
+      // Email verification fields
+      emailVerified: false,
+      emailVerificationCode: '',
+      emailVerificationExpires: null,
+      // Social media fields
+      youtube: '',
+      twitch: '',
+      twitter: '',
+      instagram: ''
     });
 
     const token = generateToken(newUser);
@@ -1752,6 +1770,139 @@ app.get('/api/test/commissions', async (req, res) => {
   } catch (error) {
     console.error('Commission test error:', error);
     res.status(500).json({ error: 'Commission test failed: ' + error.message });
+  }
+});
+
+// Email verification endpoints
+// Gửi mã xác minh email
+app.post('/api/users/send-verification', async (req, res) => {
+  try {
+    const { email, captchaToken } = req.body;
+
+    if (!email || !captchaToken) {
+      return res.status(400).json({ message: 'Email và captcha token là bắt buộc' });
+    }
+
+    // Verify captcha (development mode bypass)
+    if (!captchaToken.startsWith('development_token_')) {
+      // In production, verify with Cloudflare
+      const emailService = require('./services/emailService');
+      const captchaValid = await emailService.verifyCaptcha(captchaToken);
+      if (!captchaValid) {
+        return res.status(400).json({ message: 'Captcha không hợp lệ' });
+      }
+    }
+
+    // Check if email already exists
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ message: 'Email đã được sử dụng' });
+    }
+
+    // Generate verification code
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    // Store verification code temporarily
+    const tempUser = new User({
+      email,
+      emailVerificationCode: verificationCode,
+      emailVerificationExpires: expiresAt,
+      username: 'temp_' + Date.now(), // temporary username
+      password: 'temp_password' // temporary password
+    });
+
+    await tempUser.save();
+
+    // Send verification email (in development, just log it)
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`Development mode: Verification code for ${email}: ${verificationCode}`);
+    } else {
+      const emailService = require('./services/emailService');
+      await emailService.sendVerificationEmail(email, verificationCode);
+    }
+
+    res.json({ message: 'Mã xác minh đã được gửi đến email của bạn' });
+  } catch (err) {
+    console.error('Send verification error:', err);
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Xác minh mã và đăng ký
+app.post('/api/users/verify-and-register', async (req, res) => {
+  try {
+    const { username, email, password, verificationCode } = req.body;
+
+    if (!username || !email || !password || !verificationCode) {
+      return res.status(400).json({ message: 'Tất cả các trường là bắt buộc' });
+    }
+
+    // Find temporary user with verification code
+    const tempUser = await User.findOne({
+      email,
+      emailVerificationCode: verificationCode,
+      emailVerificationExpires: { $gt: new Date() }
+    });
+
+    if (!tempUser) {
+      return res.status(400).json({ message: 'Mã xác minh không hợp lệ hoặc đã hết hạn' });
+    }
+
+    // Check if username already exists
+    const existingUsername = await User.findOne({ username });
+    if (existingUsername) {
+      return res.status(400).json({ message: 'Tên người dùng đã tồn tại' });
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Create new user with verified email
+    const user = new User({
+      username,
+      email,
+      password: hashedPassword,
+      emailVerified: true,
+      badges: ['member'], // Default badge
+      // Initialize profile fields with empty values
+      bio: '',
+      description: '',
+      profile_email: '',
+      facebook: '',
+      zalo: '',
+      phone: '',
+      website: '',
+      vtuber_description: '',
+      artist_description: '',
+      youtube: '',
+      twitch: '',
+      twitter: '',
+      instagram: ''
+    });
+
+    await user.save();
+
+    // Delete temporary user
+    await tempUser.deleteOne();
+
+    // Generate JWT token
+    const token = generateToken(user);
+
+    res.status(201).json({
+      message: 'Đăng ký thành công',
+      token,
+      user: {
+        _id: user._id,
+        username: user.username,
+        email: user.email,
+        role: user.role,
+        badges: user.badges
+      }
+    });
+  } catch (err) {
+    console.error('Verify and register error:', err);
+    res.status(500).json({ message: err.message });
   }
 });
 
