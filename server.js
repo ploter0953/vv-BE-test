@@ -96,108 +96,89 @@ app.use((req, res, next) => {
   next();
 });
 
-// CORS configuration
+// CORS configuration - DISABLED
 const corsOptions = {
-  origin: function (origin, callback) {
-    const allowedOrigins = getAllowedOrigins();
-    
-    // Block requests with no origin (direct API access, Postman, curl, etc.)
-    if (!origin) {
-      console.log('CORS: No origin - BLOCKING request (direct API access not allowed)');
-      return callback(new Error('Truy cập trực tiếp API không được phép'), false);
-    }
-    
-    // Check if origin is allowed
-    if (allowedOrigins.includes(origin)) {
-      console.log(`CORS: Origin ${origin} is allowed`);
-      return callback(null, true);
-    }
-    
-    // Block unauthorized origin
-    console.log(`CORS: Origin ${origin} is NOT allowed - blocking request`);
-    console.log(`CORS: Allowed origins: ${allowedOrigins.join(', ')}`);
-    return callback(new Error('Truy cập không được phép từ domain này'), false);
-  },
-  credentials: true, // Enable credentials for cross-origin requests
+  origin: true, // Allow all origins
+  credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  optionsSuccessStatus: 200 // Some legacy browsers choke on 204
+  optionsSuccessStatus: 200
 };
 
 app.use(cors(corsOptions));
 
 // Apply origin validation middleware to all API routes
-app.use('/api', validateOrigin);
+// app.use('/api', validateOrigin);
 
 // Additional security: Check Referer header for API routes
-app.use('/api', (req, res, next) => {
-  const referer = req.headers.referer;
-  const allowedOrigins = getAllowedOrigins();
-  
-  // Skip referer check for OPTIONS requests (preflight)
-  if (req.method === 'OPTIONS') {
-    return next();
-  }
-  
-  // Block requests without referer (direct API access)
-  if (!referer) {
-    console.log('No referer header - BLOCKING request (direct API access not allowed)');
-    return res.status(403).json({
-      error: 'Truy cập trực tiếp API không được phép',
-      message: 'Vui lòng truy cập từ domain chính thức: https://www.projectvtuber.com'
-    });
-  }
-  
-  // Check if referer is from allowed domain
-  const refererUrl = new URL(referer);
-  const refererOrigin = refererUrl.origin;
-  
-  if (!allowedOrigins.includes(refererOrigin)) {
-    console.log(`Referer ${refererOrigin} is NOT allowed - blocking request`);
-    return res.status(403).json({
-      error: 'Truy cập không được phép từ domain này',
-      message: 'Vui lòng truy cập từ domain chính thức: https://www.projectvtuber.com'
-    });
-  }
-  
-  console.log(`Referer ${refererOrigin} is allowed`);
-  next();
-});
+// app.use('/api', (req, res, next) => {
+//   const referer = req.headers.referer;
+//   const allowedOrigins = getAllowedOrigins();
+//   
+//   // Skip referer check for OPTIONS requests (preflight)
+//   if (req.method === 'OPTIONS') {
+//     return next();
+//   }
+//   
+//   // Block requests without referer (direct API access)
+//   if (!referer) {
+//     console.log('No referer header - BLOCKING request (direct API access not allowed)');
+//     return res.status(403).json({
+//       error: 'Truy cập trực tiếp API không được phép',
+//       message: 'Vui lòng truy cập từ domain chính thức: https://www.projectvtuber.com'
+//     });
+//   }
+//   
+//   // Check if referer is from allowed domain
+//   const refererUrl = new URL(referer);
+//   const refererOrigin = refererUrl.origin;
+//   
+//   if (!allowedOrigins.includes(refererOrigin)) {
+//     console.log(`Referer ${refererOrigin} is NOT allowed - blocking request`);
+//     return res.status(403).json({
+//       error: 'Truy cập không được phép từ domain này',
+//       message: 'Vui lòng truy cập từ domain chính thức: https://www.projectvtuber.com'
+//     });
+//   }
+//   
+//   console.log(`Referer ${refererOrigin} is allowed`);
+//   next();
+// });
 
 // Additional security: Block common API testing tools
-app.use('/api', (req, res, next) => {
-  const userAgent = req.headers['user-agent'] || '';
-  const blockedTools = [
-    'postman',
-    'insomnia',
-    'curl',
-    'wget',
-    'python-requests',
-    'axios',
-    'fetch',
-    'httpie',
-    'thunder client',
-    'rest client'
-  ];
-  
-  // Skip for OPTIONS requests
-  if (req.method === 'OPTIONS') {
-    return next();
-  }
-  
-  const lowerUserAgent = userAgent.toLowerCase();
-  const isBlockedTool = blockedTools.some(tool => lowerUserAgent.includes(tool));
-  
-  if (isBlockedTool) {
-    console.log(`Blocked API testing tool: ${userAgent}`);
-    return res.status(403).json({
-      error: 'Truy cập API không được phép',
-      message: 'Vui lòng truy cập từ domain chính thức: https://www.projectvtuber.com'
-    });
-  }
-  
-  next();
-});
+// app.use('/api', (req, res, next) => {
+//   const userAgent = req.headers['user-agent'] || '';
+//   const blockedTools = [
+//     'postman',
+//     'insomnia',
+//     'curl',
+//     'wget',
+//     'python-requests',
+//     'axios',
+//     'fetch',
+//     'httpie',
+//     'thunder client',
+//     'rest client'
+//   ];
+//   
+//   // Skip for OPTIONS requests
+//   if (req.method === 'OPTIONS') {
+//     return next();
+//   }
+//   
+//   const lowerUserAgent = userAgent.toLowerCase();
+//   const isBlockedTool = blockedTools.some(tool => lowerUserAgent.includes(tool));
+//   
+//   if (isBlockedTool) {
+//     console.log(`Blocked API testing tool: ${userAgent}`);
+//     return res.status(403).json({
+//       error: 'Truy cập API không được phép',
+//       message: 'Vui lòng truy cập từ domain chính thức: https://www.projectvtuber.com'
+//     });
+//   }
+//   
+//   next();
+// });
 
 app.use(express.json());
 
