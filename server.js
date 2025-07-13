@@ -233,31 +233,29 @@ const userSchema = new mongoose.Schema({
   zalo: String,
   phone: String,
   website: String,
-  profile_email: { type: String, unique: true, sparse: true }, // Only one profile_email field
+  profile_email: { type: String }, // Allow multiple users to have same profile_email
   vtuber_description: String,
   artist_description: String
 });
 const User = mongoose.model('User', userSchema);
 
-// Fix profile_email index to be sparse
-// This fixes the duplicate key error when multiple users have null profile_email
-// The sparse index only applies to non-null values, allowing multiple null values
+// Remove profile_email unique index - allow multiple users to have same profile_email
 async function fixProfileEmailIndex() {
   try {
     // Drop the existing unique index on profile_email
     await User.collection.dropIndex('profile_email_1');
-    console.log('Dropped existing profile_email index');
+    console.log('Dropped existing profile_email unique index');
   } catch (error) {
     // Index might not exist, which is fine
-    console.log('Profile_email index does not exist or already dropped');
+    console.log('Profile_email unique index does not exist or already dropped');
   }
   
   try {
-    // Create a new sparse unique index
-    await User.collection.createIndex({ profile_email: 1 }, { unique: true, sparse: true });
-    console.log('Created sparse unique index on profile_email');
+    // Create a regular index (not unique) for better query performance
+    await User.collection.createIndex({ profile_email: 1 });
+    console.log('Created regular index on profile_email (non-unique)');
   } catch (error) {
-    console.log('Profile_email sparse index already exists or error:', error.message);
+    console.log('Profile_email index already exists or error:', error.message);
   }
 }
 
@@ -474,7 +472,17 @@ app.post('/api/auth/register', async (req, res) => {
       email, 
       password: hashedPassword, 
       avatar,
-      badges: ['member'] // Default badge for new users
+      badges: ['member'], // Default badge for new users
+      // Initialize profile fields with empty values
+      bio: '',
+      description: '',
+      profile_email: '', // Initialize as empty string
+      facebook: '',
+      zalo: '',
+      phone: '',
+      website: '',
+      vtuber_description: '',
+      artist_description: ''
     });
 
     const token = generateToken(newUser);
@@ -484,7 +492,17 @@ app.post('/api/auth/register', async (req, res) => {
         id: newUser._id,
         username: newUser.username,
         email: newUser.email,
-        avatar: newUser.avatar
+        avatar: newUser.avatar,
+        bio: newUser.bio,
+        description: newUser.description,
+        profile_email: newUser.profile_email,
+        facebook: newUser.facebook,
+        zalo: newUser.zalo,
+        phone: newUser.phone,
+        website: newUser.website,
+        vtuber_description: newUser.vtuber_description,
+        artist_description: newUser.artist_description,
+        badges: newUser.badges
       },
       token
     });
@@ -528,7 +546,17 @@ app.post('/api/auth/login', async (req, res) => {
         id: user._id,
         username: user.username,
         email: user.email,
-        avatar: user.avatar
+        avatar: user.avatar,
+        bio: user.bio,
+        description: user.description,
+        profile_email: user.profile_email,
+        facebook: user.facebook,
+        zalo: user.zalo,
+        phone: user.phone,
+        website: user.website,
+        vtuber_description: user.vtuber_description,
+        artist_description: user.artist_description,
+        badges: user.badges
       },
       token
     });
@@ -590,6 +618,7 @@ app.put('/api/users/:id', authenticateToken, async (req, res) => {
   }
 
   try {
+    // Use findOneAndUpdate with optimistic locking to prevent race conditions
     const user = await User.findById(userId);
     if (!user) {
       console.log('User not found:', userId);
@@ -601,32 +630,34 @@ app.put('/api/users/:id', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Bio không được vượt quá 50 ký tự' });
     }
 
-    // Check if profile_email is being changed and if it's already used by another user
-    if (profile_email && profile_email !== user.profile_email) {
-      const existingUser = await User.findOne({ 
-        profile_email: profile_email,
-        _id: { $ne: userId } // Exclude current user
-      });
-      
-      if (existingUser) {
-        return res.status(400).json({ error: 'Profile email đã được sử dụng bởi người dùng khác' });
-      }
+    // Allow profile_email to be updated to any value (including existing ones)
+    // No need to check for duplicates since we removed unique constraint
+    
+    // Update user fields
+    const updateData = {
+      avatar: avatar || user.avatar,
+      bio: bio || user.bio,
+      description: description || user.description,
+      facebook: facebook || user.facebook,
+      zalo: zalo || user.zalo,
+      phone: phone || user.phone,
+      website: website || user.website,
+      profile_email: profile_email || user.profile_email, // Allow empty string or null
+      vtuber_description: vtuber_description || user.vtuber_description,
+      artist_description: artist_description || user.artist_description
+    };
+
+    // Use findOneAndUpdate to prevent race conditions
+    const updatedUser = await User.findOneAndUpdate(
+      { _id: userId },
+      updateData,
+      { new: true, runValidators: true }
+    );
+
+    if (!updatedUser) {
+      return res.status(404).json({ error: 'Người dùng không tồn tại' });
     }
 
-    // Update user fields
-    user.avatar = avatar;
-    user.bio = bio;
-    user.description = description;
-    // user.badge and user.badges are NOT allowed to be updated by user - only admin can change badges
-    user.facebook = facebook;
-    user.zalo = zalo;
-    user.phone = phone;
-    user.website = website;
-    user.profile_email = profile_email;
-    user.vtuber_description = vtuber_description;
-    user.artist_description = artist_description;
-
-    await user.save();
     console.log('Profile updated successfully for user:', userId);
     res.json({ message: 'Cập nhật profile thành công' });
   } catch (error) {
@@ -634,9 +665,9 @@ app.put('/api/users/:id', authenticateToken, async (req, res) => {
     
     // Handle specific MongoDB errors
     if (error.code === 11000) {
-      if (error.keyPattern.profile_email) {
-        return res.status(400).json({ error: 'Profile email đã được sử dụng bởi người dùng khác' });
-      }
+      // This should not happen anymore since we removed unique constraint
+      console.error('Unexpected duplicate key error:', error);
+      return res.status(500).json({ error: 'Lỗi database không mong muốn. Vui lòng thử lại.' });
     }
     
     res.status(500).json({ error: 'Lỗi khi cập nhật profile: ' + error.message });
