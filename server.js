@@ -226,6 +226,7 @@ const userSchema = new mongoose.Schema({
   role: { type: String, enum: ['user', 'admin', 'artist'], default: 'user' },
   avatar: { type: String, default: '' },
   bio: String,
+  description: String, // New field for detailed user description
   badge: String, // Keep for backward compatibility
   badges: { type: [String], default: ['member'] }, // New field for multiple badges
   facebook: String,
@@ -554,7 +555,7 @@ app.get('/api/users/:id', async (req, res) => {
 // Update user profile
 app.put('/api/users/:id', authenticateToken, async (req, res) => {
   const userId = req.params.id;
-  const { avatar, bio, facebook, zalo, phone, website, profile_email } = req.body;
+  const { avatar, bio, facebook, zalo, phone, website, profile_email, vtuber_description, artist_description, description } = req.body;
 
   // Check if user is updating their own profile
   if (userId !== req.user.id.toString()) {
@@ -567,18 +568,27 @@ app.put('/api/users/:id', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Người dùng không tồn tại' });
     }
 
+    // Validate bio length (max 50 characters)
+    if (bio && bio.length > 50) {
+      return res.status(400).json({ error: 'Bio không được vượt quá 50 ký tự' });
+    }
+
     user.avatar = avatar;
     user.bio = bio;
+    user.description = description;
     // user.badge and user.badges are NOT allowed to be updated by user - only admin can change badges
     user.facebook = facebook;
     user.zalo = zalo;
     user.phone = phone;
     user.website = website;
     user.profile_email = profile_email;
+    user.vtuber_description = vtuber_description;
+    user.artist_description = artist_description;
 
     await user.save();
     res.json({ message: 'Cập nhật profile thành công' });
   } catch (error) {
+    console.error('Profile update error:', error);
     res.status(500).json({ error: 'Lỗi khi cập nhật profile' });
   }
 });
@@ -1495,5 +1505,5 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server is running on port ${PORT}`);
   console.log(`API available at http://localhost:${PORT}/api`);
   console.log(`Server accessible from other machines on the network`);
-  console.log(`CORS enabled for Cloudflare tunnel domains`);
+  console.log(`CORS Enabled`);
 }); 
