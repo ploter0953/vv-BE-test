@@ -557,14 +557,18 @@ app.put('/api/users/:id', authenticateToken, async (req, res) => {
   const userId = req.params.id;
   const { avatar, bio, facebook, zalo, phone, website, profile_email, vtuber_description, artist_description, description } = req.body;
 
+  console.log('Profile update request:', { userId, userFromToken: req.user.id, body: req.body });
+
   // Check if user is updating their own profile
   if (userId !== req.user.id.toString()) {
+    console.log('Permission denied: userId', userId, 'userFromToken', req.user.id);
     return res.status(403).json({ error: 'Không có quyền cập nhật profile này' });
   }
 
   try {
     const user = await User.findById(userId);
     if (!user) {
+      console.log('User not found:', userId);
       return res.status(404).json({ error: 'Người dùng không tồn tại' });
     }
 
@@ -573,6 +577,7 @@ app.put('/api/users/:id', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Bio không được vượt quá 50 ký tự' });
     }
 
+    // Update user fields
     user.avatar = avatar;
     user.bio = bio;
     user.description = description;
@@ -586,10 +591,19 @@ app.put('/api/users/:id', authenticateToken, async (req, res) => {
     user.artist_description = artist_description;
 
     await user.save();
+    console.log('Profile updated successfully for user:', userId);
     res.json({ message: 'Cập nhật profile thành công' });
   } catch (error) {
     console.error('Profile update error:', error);
-    res.status(500).json({ error: 'Lỗi khi cập nhật profile' });
+    
+    // Handle specific MongoDB errors
+    if (error.code === 11000) {
+      if (error.keyPattern.profile_email) {
+        return res.status(400).json({ error: 'Profile email đã được sử dụng bởi người dùng khác' });
+      }
+    }
+    
+    res.status(500).json({ error: 'Lỗi khi cập nhật profile: ' + error.message });
   }
 });
 
@@ -623,10 +637,13 @@ app.post('/api/commissions', authenticateToken, async (req, res) => {
 // Get all commissions
 app.get('/api/commissions', async (req, res) => {
   try {
+    console.log('Fetching all commissions...');
     const commissions = await Commission.find().sort({ created_at: -1 });
+    console.log(`Found ${commissions.length} commissions`);
     res.json({ commissions });
   } catch (error) {
-    res.status(500).json({ error: 'Lỗi server' });
+    console.error('Error fetching commissions:', error);
+    res.status(500).json({ error: 'Lỗi server khi tải commissions' });
   }
 });
 
