@@ -150,7 +150,7 @@ const corsOptions = {
   },
   credentials: true, // Enable credentials for cross-origin requests
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'CF-Turnstile-Response'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   optionsSuccessStatus: 200 // Some legacy browsers choke on 204
 };
 
