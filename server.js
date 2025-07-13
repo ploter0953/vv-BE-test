@@ -40,11 +40,23 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-producti
 
 // Parse allowed origins from environment variable
 const getAllowedOrigins = () => {
-  // Only allow official domain
+  // Allow official domains and development origins
   const allowedOrigins = [
     'https://projectvtuber.com',
-    'https://www.projectvtuber.com'
+    'https://www.projectvtuber.com',
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:5173',
+    'https://localhost:3000',
+    'https://localhost:5173'
   ];
+  
+  // Add any additional origins from environment variable
+  if (process.env.ADDITIONAL_ORIGINS) {
+    const additionalOrigins = process.env.ADDITIONAL_ORIGINS.split(',').map(origin => origin.trim());
+    allowedOrigins.push(...additionalOrigins);
+  }
   
   return allowedOrigins;
 };
@@ -57,6 +69,15 @@ const validateOrigin = (req, res, next) => {
   // Log origin for debugging
   console.log(`Request origin: ${origin}`);
   console.log(`Allowed origins: ${allowedOrigins.join(', ')}`);
+  
+  // In development mode, be more permissive
+  if (process.env.NODE_ENV === 'development') {
+    // Allow all localhost origins
+    if (!origin || origin.startsWith('http://localhost:') || origin.startsWith('https://localhost:') || origin.startsWith('http://127.0.0.1:') || origin.startsWith('https://127.0.0.1:')) {
+      console.log(`Development mode - allowing origin: ${origin || 'No origin'}`);
+      return next();
+    }
+  }
   
   // Block requests with no origin (direct API access, Postman, curl, etc.)
   if (!origin) {
@@ -101,6 +122,15 @@ const corsOptions = {
   origin: function (origin, callback) {
     const allowedOrigins = getAllowedOrigins();
     
+    // In development mode, be more permissive
+    if (process.env.NODE_ENV === 'development') {
+      // Allow all localhost origins
+      if (!origin || origin.startsWith('http://localhost:') || origin.startsWith('https://localhost:') || origin.startsWith('http://127.0.0.1:') || origin.startsWith('https://127.0.0.1:')) {
+        console.log(`CORS: Development mode - allowing origin: ${origin || 'No origin'}`);
+        return callback(null, true);
+      }
+    }
+    
     // Block requests with no origin (direct API access, Postman, curl, etc.)
     if (!origin) {
       console.log('CORS: No origin - BLOCKING request (direct API access not allowed)');
@@ -120,7 +150,7 @@ const corsOptions = {
   },
   credentials: true, // Enable credentials for cross-origin requests
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'CF-Turnstile-Response'],
   optionsSuccessStatus: 200 // Some legacy browsers choke on 204
 };
 
@@ -139,6 +169,28 @@ app.use('/api', (req, res, next) => {
     return next();
   }
   
+  // In development mode, be more permissive with referer
+  if (process.env.NODE_ENV === 'development') {
+    // Allow requests without referer in development
+    if (!referer) {
+      console.log('Development mode - allowing request without referer');
+      return next();
+    }
+    
+    // Allow all localhost referers in development
+    try {
+      const refererUrl = new URL(referer);
+      const refererOrigin = refererUrl.origin;
+      if (refererOrigin.startsWith('http://localhost:') || refererOrigin.startsWith('https://localhost:') || refererOrigin.startsWith('http://127.0.0.1:') || refererOrigin.startsWith('https://127.0.0.1:')) {
+        console.log(`Development mode - allowing referer: ${refererOrigin}`);
+        return next();
+      }
+    } catch (error) {
+      console.log('Development mode - allowing invalid referer URL');
+      return next();
+    }
+  }
+  
   // Block requests without referer (direct API access)
   if (!referer) {
     console.log('No referer header - BLOCKING request (direct API access not allowed)');
@@ -149,19 +201,27 @@ app.use('/api', (req, res, next) => {
   }
   
   // Check if referer is from allowed domain
-  const refererUrl = new URL(referer);
-  const refererOrigin = refererUrl.origin;
-  
-  if (!allowedOrigins.includes(refererOrigin)) {
-    console.log(`Referer ${refererOrigin} is NOT allowed - blocking request`);
+  try {
+    const refererUrl = new URL(referer);
+    const refererOrigin = refererUrl.origin;
+    
+    if (!allowedOrigins.includes(refererOrigin)) {
+      console.log(`Referer ${refererOrigin} is NOT allowed - blocking request`);
+      return res.status(403).json({
+        error: 'Truy cập không được phép từ domain này',
+        message: 'Vui lòng truy cập từ domain chính thức: https://www.projectvtuber.com'
+      });
+    }
+    
+    console.log(`Referer ${refererOrigin} is allowed`);
+    next();
+  } catch (error) {
+    console.log('Invalid referer URL - blocking request');
     return res.status(403).json({
-      error: 'Truy cập không được phép từ domain này',
+      error: 'Truy cập không được phép',
       message: 'Vui lòng truy cập từ domain chính thức: https://www.projectvtuber.com'
     });
   }
-  
-  console.log(`Referer ${refererOrigin} is allowed`);
-  next();
 });
 
 // Additional security: Block common API testing tools
@@ -182,6 +242,12 @@ app.use('/api', (req, res, next) => {
   
   // Skip for OPTIONS requests
   if (req.method === 'OPTIONS') {
+    return next();
+  }
+  
+  // In development mode, be more permissive
+  if (process.env.NODE_ENV === 'development') {
+    console.log('Development mode - allowing all user agents');
     return next();
   }
   
