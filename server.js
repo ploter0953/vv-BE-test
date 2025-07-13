@@ -1457,8 +1457,14 @@ app.get('/api/users/vote', async (req, res) => {
     console.log('--- /api/users/vote called ---');
     console.log('Query params:', req.query);
     console.log('Request headers:', req.headers);
+    
+    // Check if User model exists
+    console.log('User model exists:', !!User);
+    console.log('User model:', User);
+    
     const { badge } = req.query;
     let query = {};
+    
     if (badge) {
       if (badge === 'vtuber') {
         query.badges = { $in: ['vtuber'] };
@@ -1466,24 +1472,43 @@ app.get('/api/users/vote', async (req, res) => {
         query.badges = { $in: ['verified'] };
       }
     }
+    
     console.log('MongoDB query object:', JSON.stringify(query));
     console.log('Mongoose connection readyState:', mongoose.connection.readyState);
+    console.log('Mongoose connection name:', mongoose.connection.name);
+    console.log('Mongoose connection host:', mongoose.connection.host);
+    
     if (!mongoose.connection.readyState) {
       console.error('Database not connected');
       return res.status(500).json({ error: 'Database connection error' });
     }
+    
+    // Test basic User.find() first
+    console.log('Testing basic User.find()...');
+    const allUsers = await User.find({}).limit(1);
+    console.log('Basic User.find() result:', allUsers.length, 'users found');
+    
+    console.log('Executing main query...');
     const users = await User.find(query)
       .select('username avatar bio badges vtuber_description artist_description')
       .sort({ username: 1 });
+    
     console.log(`Found ${users.length} users for voting`);
+    
     if (users.length > 0) {
-      console.log('Sample user:', users[0]);
+      console.log('Sample user:', JSON.stringify(users[0], null, 2));
     } else {
       console.log('No users found for this query.');
     }
+    
     res.json({ users });
+    
   } catch (error) {
-    console.error('Get users for vote error:', error);
+    console.error('=== /api/users/vote ERROR ===');
+    console.error('Error object:', error);
+    console.error('Error type:', typeof error);
+    console.error('Error constructor:', error.constructor.name);
+    
     if (error && error.stack) {
       console.error('Error stack:', error.stack);
     }
@@ -1493,10 +1518,15 @@ app.get('/api/users/vote', async (req, res) => {
     if (error && error.message) {
       console.error('Error message:', error.message);
     }
+    if (error && error.code) {
+      console.error('Error code:', error.code);
+    }
+    
     res.status(500).json({ 
       error: 'Lỗi server', 
       details: error.message,
       name: error.name,
+      code: error.code,
       stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
@@ -1572,6 +1602,43 @@ app.delete('/api/feedback/:id', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Delete feedback error:', error);
     res.status(500).json({ error: 'Lỗi server' });
+  }
+});
+
+// Test endpoint for User model
+app.get('/api/test/users', async (req, res) => {
+  try {
+    console.log('=== /api/test/users called ===');
+    console.log('User model exists:', !!User);
+    console.log('Mongoose connection readyState:', mongoose.connection.readyState);
+    
+    if (!mongoose.connection.readyState) {
+      return res.status(500).json({ error: 'Database not connected' });
+    }
+    
+    // Test simple count
+    const count = await User.countDocuments();
+    console.log('Total users in database:', count);
+    
+    // Test simple find
+    const users = await User.find({}).limit(3).select('username email');
+    console.log('Sample users:', users);
+    
+    res.json({
+      message: 'User model test successful',
+      totalUsers: count,
+      sampleUsers: users,
+      connectionState: mongoose.connection.readyState
+    });
+    
+  } catch (error) {
+    console.error('User model test error:', error);
+    res.status(500).json({ 
+      error: 'User model test failed', 
+      details: error.message,
+      name: error.name,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 });
 
