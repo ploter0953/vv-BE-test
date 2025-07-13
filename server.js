@@ -340,7 +340,7 @@ function extractPublicIdFromCloudinaryUrl(url) {
   
   return null;
 }
-
+// nothing
 // Helper function to hash password
 function hashPassword(password) {
   return bcrypt.hashSync(password, 10);
