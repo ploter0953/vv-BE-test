@@ -157,6 +157,10 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
+// Parse JSON bodies
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
 // Apply origin validation middleware to all API routes
 app.use('/api', validateOrigin);
 
@@ -1797,255 +1801,25 @@ setInterval(cleanupExpiredTempUsers, 30 * 60 * 1000);
 // Also run cleanup on startup
 cleanupExpiredTempUsers();
 
-// Test endpoint for debugging
-app.get('/api/test/debug', async (req, res) => {
-  try {
-    console.log('=== DEBUG TEST ===');
-    
-    // Test 1: Environment variables
-    console.log('RESEND_API_KEY exists:', !!process.env.RESEND_API_KEY);
-    console.log('MONGODB_URI exists:', !!process.env.MONGODB_URI);
-    console.log('NODE_ENV:', process.env.NODE_ENV);
-    
-    // Test 2: Database connection
-    const dbStatus = mongoose.connection.readyState;
-    console.log('Database connection state:', dbStatus);
-    
-    // Test 3: Email service (without sending)
-    try {
-      const emailService = require('./services/emailService');
-      console.log('Email service loaded successfully');
-    } catch (emailError) {
-      console.error('Email service error:', emailError);
-    }
-    
-    res.json({
-      message: 'Debug test completed',
-      env: {
-        resendApiKey: !!process.env.RESEND_API_KEY,
-        mongodbUri: !!process.env.MONGODB_URI,
-        nodeEnv: process.env.NODE_ENV
-      },
-      database: {
-        connectionState: dbStatus,
-        connected: dbStatus === 1      }
-    });
-    
-  } catch (error) {
-    console.error('Debug test error:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Email verification endpoints
-// Gửi mã xác minh email
-app.post('/api/users/send-verification', async (req, res) => {
-  try {
-    const { email } = req.body;
-
-    if (!email) {
-      return res.status(400).json({ message: 'Email là bắt buộc' });
-    }
-
-    // Check if email already exists in permanent users
-    const existingUser = await User.findOne({ 
-      email,
-      emailVerified: { $ne: false } // Exclude temporary users (emailVerified: false)
-    });
-    
-    if (existingUser) {
-      return res.status(400).json({ message: 'Email đã được sử dụng' });
-    }
-
-    // Check if there's an expired temporary user and delete it
-    const expiredTempUser = await User.findOne({
-      email,
-      emailVerified: false,
-      emailVerificationExpires: { $lt: new Date() }
-    });
-    
-    if (expiredTempUser) {
-      await expiredTempUser.deleteOne();
-      console.log('Deleted expired temporary user for:', email);
-    }
-
-    // Check if there's a valid temporary user (not expired)
-    const validTempUser = await User.findOne({
-      email,
-      emailVerified: false,
-      emailVerificationExpires: { $gt: new Date() }
-    });
-
-    if (validTempUser) {
-      // Update existing temporary user with new code
-      const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
-      const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-      
-      validTempUser.emailVerificationCode = verificationCode;
-      validTempUser.emailVerificationExpires = expiresAt;
-      await validTempUser.save();
-      
-      // Send verification email
-      const emailService = require('./services/emailService');
-      await emailService.sendVerificationEmail(email, verificationCode);
-      
-      return res.json({ message: 'Mã xác minh mới đã được gửi đến email của bạn' });
-    }
-
-    // Create new temporary user
-    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-
-    const tempUser = new User({
-      email,
-      emailVerificationCode: verificationCode,
-      emailVerificationExpires: expiresAt,
-      emailVerified: false, // Mark as temporary user
-      username: 'temp_' + Date.now(), // temporary username
-      password: 'temp_password' // temporary password
-    });
-
-    await tempUser.save();
-
-    // Send verification email
-    const emailService = require('./services/emailService');
-    await emailService.sendVerificationEmail(email, verificationCode);
-
-    res.json({ message: 'Mã xác minh đã được gửi đến email của bạn' });
-  } catch (err) {
-    console.error('Send verification error:', err);
-    res.status(500).json({ message: err.message });
-  }
-});
-
-// Xác minh mã và đăng ký
-app.post('/api/users/verify-and-register', async (req, res) => {
-  try {
-    const { username, email, password, verificationCode } = req.body;
-
-    if (!username || !email || !password || !verificationCode) {
-      return res.status(400).json({ message: 'Tất cả các trường là bắt buộc' });
-    }
-
-    // Find temporary user with verification code
-    const tempUser = await User.findOne({
-      email,
-      emailVerificationCode: verificationCode,
-      emailVerificationExpires: { $gt: new Date() },
-      emailVerified: false // Only temporary users
-    });
-
-    if (!tempUser) {
-      return res.status(400).json({ message: 'Mã xác minh không hợp lệ hoặc đã hết hạn' });
-    }
-
-    // Check if username already exists
-    const existingUsername = await User.findOne({ username });
-    if (existingUsername) {
-      return res.status(400).json({ message: 'Tên người dùng đã tồn tại' });
-    }
-
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    // Create new user with verified email
-    const user = new User({
-      username,
-      email,
-      password: hashedPassword,
-      emailVerified: true,
-      badges: ['member'], // Default badge
-      // Initialize profile fields with empty values
-      bio: '',
-      description: '',
-      profile_email: '',
-      facebook: '',
-      zalo: '',
-      phone: '',
-      website: '',
-      vtuber_description: '',
-      artist_description: '',
-      youtube: '',
-      twitch: '',
-      twitter: '',
-      instagram: ''
-    });
-
-    await user.save();
-
-    // Delete temporary user
-    await tempUser.deleteOne();
-
-    // Generate JWT token
-    const token = generateToken(user);
-
-    res.status(201).json({
-      message: 'Đăng ký thành công',
-      token,
-      user: {
-        _id: user._id,
-        username: user.username,
-        email: user.email,
-        role: user.role,
-        badges: user.badges
-      }
-    });
-  } catch (err) {
-    console.error('Verify and register error:', err);
-    res.status(500).json({ message: err.message });
-  }
-});
-
-// Global error handler
-app.use((err, req, res, next) => {
-  console.error('Global error handler:', err);
-  res.status(500).json({
-    error: err.message || 'Internal server error',
-    timestamp: new Date().toISOString(),
-    path: req.path
-  });
-});
-
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({
-    error: 'API endpoint not found',
-    path: req.path,
-    timestamp: new Date().toISOString()
-  });
-});
-
-// Cleanup expired temporary users
-async function cleanupExpiredTempUsers() {
-  try {
-    const result = await User.deleteMany({
-      emailVerified: false,
-      emailVerificationExpires: { $lt: new Date() }
-    });
-    
-    if (result.deletedCount > 0) {
-      console.log(`Cleaned up ${result.deletedCount} expired temporary users`);
-    }
-  } catch (error) {
-    console.error('Cleanup error:', error);
-  }
-}
-
-// Run cleanup every 30 minutes
-setInterval(cleanupExpiredTempUsers, 30 * 60 * 1000);
-
-// Also run cleanup on startup
-cleanupExpiredTempUsers();
-
 // Đồng bộ user Clerk với MongoDB
 app.post('/api/users/clerk-sync', clerkAuth, async (req, res) => {
   try {
+    console.log('=== Clerk sync endpoint called ===');
+    console.log('Request body:', req.body);
+    console.log('Request headers:', req.headers);
+    console.log('User from Clerk middleware:', req.auth);
+    
     const { clerkId, email, username, firstName, lastName, imageUrl } = req.body;
     if (!clerkId || !email) {
+      console.log('Missing required fields:', { clerkId, email });
       return res.status(400).json({ error: 'Thiếu thông tin user Clerk' });
     }
+    
+    console.log('Looking for user with clerkId:', clerkId);
     let user = await User.findOne({ clerkId });
+    
     if (!user) {
+      console.log('Creating new user with clerkId:', clerkId);
       user = new User({
         clerkId,
         email,
@@ -2058,15 +1832,66 @@ app.post('/api/users/clerk-sync', clerkAuth, async (req, res) => {
         lastName
       });
     } else {
+      console.log('Updating existing user with clerkId:', clerkId);
       user.email = email;
       user.username = username;
       user.avatar = imageUrl;
       user.firstName = firstName;
       user.lastName = lastName;
     }
+    
     await user.save();
+    console.log('User saved successfully:', user._id);
     res.json({ message: 'Đồng bộ user thành công', user });
   } catch (error) {
+    console.error('Clerk sync error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Test endpoint without Clerk authentication
+app.post('/api/users/clerk-sync-test', async (req, res) => {
+  try {
+    console.log('=== Clerk sync test endpoint called ===');
+    console.log('Request body:', req.body);
+    console.log('Request headers:', req.headers);
+    
+    const { clerkId, email, username, firstName, lastName, imageUrl } = req.body;
+    if (!clerkId || !email) {
+      console.log('Missing required fields:', { clerkId, email });
+      return res.status(400).json({ error: 'Thiếu thông tin user Clerk' });
+    }
+    
+    console.log('Looking for user with clerkId:', clerkId);
+    let user = await User.findOne({ clerkId });
+    
+    if (!user) {
+      console.log('Creating new user with clerkId:', clerkId);
+      user = new User({
+        clerkId,
+        email,
+        username,
+        avatar: imageUrl,
+        bio: '',
+        description: '',
+        badges: ['member'],
+        firstName,
+        lastName
+      });
+    } else {
+      console.log('Updating existing user with clerkId:', clerkId);
+      user.email = email;
+      user.username = username;
+      user.avatar = imageUrl;
+      user.firstName = firstName;
+      user.lastName = lastName;
+    }
+    
+    await user.save();
+    console.log('User saved successfully:', user._id);
+    res.json({ message: 'Đồng bộ user thành công (test)', user });
+  } catch (error) {
+    console.error('Clerk sync test error:', error);
     res.status(500).json({ error: error.message });
   }
 });
