@@ -9,7 +9,6 @@ const mongoose = require('mongoose');
 const path = require('path');
 const cloudinary = require('cloudinary').v2;
 const multer = require('multer');
-const clerkAuth = require('./middleware/clerkAuth');
 
 // Cloudinary configuration
 cloudinary.config({
@@ -41,23 +40,11 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-producti
 
 // Parse allowed origins from environment variable
 const getAllowedOrigins = () => {
-  // Allow official domains and development origins
+  // Only allow official domain
   const allowedOrigins = [
     'https://projectvtuber.com',
-    'https://www.projectvtuber.com',
-    'http://localhost:3000',
-    'http://localhost:5173',
-    'http://127.0.0.1:3000',
-    'http://127.0.0.1:5173',
-    'https://localhost:3000',
-    'https://localhost:5173'
+    'https://www.projectvtuber.com'
   ];
-  
-  // Add any additional origins from environment variable
-  if (process.env.ADDITIONAL_ORIGINS) {
-    const additionalOrigins = process.env.ADDITIONAL_ORIGINS.split(',').map(origin => origin.trim());
-    allowedOrigins.push(...additionalOrigins);
-  }
   
   return allowedOrigins;
 };
@@ -70,15 +57,6 @@ const validateOrigin = (req, res, next) => {
   // Log origin for debugging
   console.log(`Request origin: ${origin}`);
   console.log(`Allowed origins: ${allowedOrigins.join(', ')}`);
-  
-  // In development mode, be more permissive
-  if (process.env.NODE_ENV === 'development') {
-    // Allow all localhost origins
-    if (!origin || origin.startsWith('http://localhost:') || origin.startsWith('https://localhost:') || origin.startsWith('http://127.0.0.1:') || origin.startsWith('https://127.0.0.1:')) {
-      console.log(`Development mode - allowing origin: ${origin || 'No origin'}`);
-      return next();
-    }
-  }
   
   // Block requests with no origin (direct API access, Postman, curl, etc.)
   if (!origin) {
@@ -123,15 +101,6 @@ const corsOptions = {
   origin: function (origin, callback) {
     const allowedOrigins = getAllowedOrigins();
     
-    // In development mode, be more permissive
-    if (process.env.NODE_ENV === 'development') {
-      // Allow all localhost origins
-      if (!origin || origin.startsWith('http://localhost:') || origin.startsWith('https://localhost:') || origin.startsWith('http://127.0.0.1:') || origin.startsWith('https://127.0.0.1:')) {
-        console.log(`CORS: Development mode - allowing origin: ${origin || 'No origin'}`);
-        return callback(null, true);
-      }
-    }
-    
     // Block requests with no origin (direct API access, Postman, curl, etc.)
     if (!origin) {
       console.log('CORS: No origin - BLOCKING request (direct API access not allowed)');
@@ -157,10 +126,6 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
-// Parse JSON bodies
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
 // Apply origin validation middleware to all API routes
 app.use('/api', validateOrigin);
 
@@ -174,28 +139,6 @@ app.use('/api', (req, res, next) => {
     return next();
   }
   
-  // In development mode, be more permissive with referer
-  if (process.env.NODE_ENV === 'development') {
-    // Allow requests without referer in development
-    if (!referer) {
-      console.log('Development mode - allowing request without referer');
-      return next();
-    }
-    
-    // Allow all localhost referers in development
-    try {
-      const refererUrl = new URL(referer);
-      const refererOrigin = refererUrl.origin;
-      if (refererOrigin.startsWith('http://localhost:') || refererOrigin.startsWith('https://localhost:') || refererOrigin.startsWith('http://127.0.0.1:') || refererOrigin.startsWith('https://127.0.0.1:')) {
-        console.log(`Development mode - allowing referer: ${refererOrigin}`);
-        return next();
-      }
-    } catch (error) {
-      console.log('Development mode - allowing invalid referer URL');
-      return next();
-    }
-  }
-  
   // Block requests without referer (direct API access)
   if (!referer) {
     console.log('No referer header - BLOCKING request (direct API access not allowed)');
@@ -206,27 +149,19 @@ app.use('/api', (req, res, next) => {
   }
   
   // Check if referer is from allowed domain
-  try {
-    const refererUrl = new URL(referer);
-    const refererOrigin = refererUrl.origin;
-    
-    if (!allowedOrigins.includes(refererOrigin)) {
-      console.log(`Referer ${refererOrigin} is NOT allowed - blocking request`);
-      return res.status(403).json({
-        error: 'Truy cập không được phép từ domain này',
-        message: 'Vui lòng truy cập từ domain chính thức: https://www.projectvtuber.com'
-      });
-    }
-    
-    console.log(`Referer ${refererOrigin} is allowed`);
-    next();
-  } catch (error) {
-    console.log('Invalid referer URL - blocking request');
+  const refererUrl = new URL(referer);
+  const refererOrigin = refererUrl.origin;
+  
+  if (!allowedOrigins.includes(refererOrigin)) {
+    console.log(`Referer ${refererOrigin} is NOT allowed - blocking request`);
     return res.status(403).json({
-      error: 'Truy cập không được phép',
+      error: 'Truy cập không được phép từ domain này',
       message: 'Vui lòng truy cập từ domain chính thức: https://www.projectvtuber.com'
     });
   }
+  
+  console.log(`Referer ${refererOrigin} is allowed`);
+  next();
 });
 
 // Additional security: Block common API testing tools
@@ -247,12 +182,6 @@ app.use('/api', (req, res, next) => {
   
   // Skip for OPTIONS requests
   if (req.method === 'OPTIONS') {
-    return next();
-  }
-  
-  // In development mode, be more permissive
-  if (process.env.NODE_ENV === 'development') {
-    console.log('Development mode - allowing all user agents');
     return next();
   }
   
@@ -291,9 +220,9 @@ mongoose.connect(MONGODB_URI, {
 
 // Mongoose User model
 const userSchema = new mongoose.Schema({
-  clerkId: { type: String, unique: true, sparse: true },
   username: { type: String, unique: true },
   email: { type: String, unique: true },
+  password: String,
   role: { type: String, enum: ['user', 'admin', 'artist'], default: 'user' },
   avatar: { type: String, default: '' },
   bio: String,
@@ -306,14 +235,7 @@ const userSchema = new mongoose.Schema({
   website: String,
   profile_email: { type: String }, // Allow multiple users to have same profile_email
   vtuber_description: String,
-  artist_description: String,
-  // Social media fields
-  youtube: String,
-  twitch: String,
-  twitter: String,
-  instagram: String,
-  firstName: String,
-  lastName: String
+  artist_description: String
 });
 const User = mongoose.model('User', userSchema);
 
@@ -560,16 +482,7 @@ app.post('/api/auth/register', async (req, res) => {
       phone: '',
       website: '',
       vtuber_description: '',
-      artist_description: '',
-      // Email verification fields
-      emailVerified: false,
-      emailVerificationCode: '',
-      emailVerificationExpires: null,
-      // Social media fields
-      youtube: '',
-      twitch: '',
-      twitter: '',
-      instagram: ''
+      artist_description: ''
     });
 
     const token = generateToken(newUser);
@@ -760,18 +673,20 @@ app.get('/api/users/vote', async (req, res) => {
   }
 });
 
-// Get user by ID or clerkId
+// Get user by ID
 app.get('/api/users/:id', async (req, res) => {
-  const { id } = req.params;
-  let user = null;
-  if (id.match(/^[0-9a-fA-F]{24}$/)) {
-    user = await User.findById(id);
+  try {
+    const userId = req.params.id;
+    const user = await User.findById(userId);
+    
+    if (!user) {
+      return res.status(404).json({ error: 'Người dùng không tồn tại' });
+    }
+
+    res.json({ user });
+  } catch (error) {
+    return res.status(500).json({ error: 'Lỗi server' });
   }
-  if (!user) {
-    user = await User.findOne({ clerkId: id });
-  }
-  if (!user) return res.status(404).json({ error: 'Người dùng không tồn tại' });
-  res.json({ user });
 });
 
 // Update user profile
@@ -845,7 +760,7 @@ app.put('/api/users/:id', authenticateToken, async (req, res) => {
 });
 
 // Create commission
-app.post('/api/commissions', clerkAuth, async (req, res) => {
+app.post('/api/commissions', authenticateToken, async (req, res) => {
   try {
     const {
       title, description, type, price, currency, deadline, requirements, examples, tags
@@ -921,19 +836,14 @@ app.get('/api/commissions/:id', async (req, res) => {
   }
 });
 
-// Get commissions by user (by _id hoặc clerkId)
+// Get commissions by user
 app.get('/api/users/:id/commissions', async (req, res) => {
-  const { id } = req.params;
-  let user = null;
-  if (id.match(/^[0-9a-fA-F]{24}$/)) {
-    user = await User.findById(id);
+  try {
+    const commissions = await Commission.find({ user_id: req.params.id }).sort({ created_at: -1 });
+    res.json({ commissions });
+  } catch (error) {
+    res.status(500).json({ error: 'Lỗi server' });
   }
-  if (!user) {
-    user = await User.findOne({ clerkId: id });
-  }
-  if (!user) return res.status(404).json({ error: 'Người dùng không tồn tại' });
-  const commissions = await Commission.find({ user_id: user._id }).sort({ created_at: -1 });
-  res.json({ commissions });
 });
 
 // Delete commission (artist can only delete if no pending orders)
@@ -1779,121 +1689,23 @@ app.get('/api/test/commissions', async (req, res) => {
   }
 });
 
-// Cleanup expired temporary users
-async function cleanupExpiredTempUsers() {
-  try {
-    const result = await User.deleteMany({
-      emailVerified: false,
-      emailVerificationExpires: { $lt: new Date() }
-    });
-    
-    if (result.deletedCount > 0) {
-      console.log(`Cleaned up ${result.deletedCount} expired temporary users`);
-    }
-  } catch (error) {
-    console.error('Cleanup error:', error);
-  }
-}
-
-// Run cleanup every 30 minutes
-setInterval(cleanupExpiredTempUsers, 30 * 60 * 1000);
-
-// Also run cleanup on startup
-cleanupExpiredTempUsers();
-
-// Đồng bộ user Clerk với MongoDB
-app.post('/api/users/clerk-sync', clerkAuth, async (req, res) => {
-  try {
-    console.log('=== Clerk sync endpoint called ===');
-    console.log('Request body:', req.body);
-    console.log('Request headers:', req.headers);
-    console.log('User from Clerk middleware:', req.auth);
-    
-    const { clerkId, email, username, firstName, lastName, imageUrl } = req.body;
-    if (!clerkId || !email) {
-      console.log('Missing required fields:', { clerkId, email });
-      return res.status(400).json({ error: 'Thiếu thông tin user Clerk' });
-    }
-    
-    console.log('Looking for user with clerkId:', clerkId);
-    let user = await User.findOne({ clerkId });
-    
-    if (!user) {
-      console.log('Creating new user with clerkId:', clerkId);
-      user = new User({
-        clerkId,
-        email,
-        username,
-        avatar: imageUrl,
-        bio: '',
-        description: '',
-        badges: ['member'],
-        firstName,
-        lastName
-      });
-    } else {
-      console.log('Updating existing user with clerkId:', clerkId);
-      user.email = email;
-      user.username = username;
-      user.avatar = imageUrl;
-      user.firstName = firstName;
-      user.lastName = lastName;
-    }
-    
-    await user.save();
-    console.log('User saved successfully:', user._id);
-    res.json({ message: 'Đồng bộ user thành công', user });
-  } catch (error) {
-    console.error('Clerk sync error:', error);
-    res.status(500).json({ error: error.message });
-  }
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error('Global error handler:', err);
+  res.status(500).json({
+    error: err.message || 'Internal server error',
+    timestamp: new Date().toISOString(),
+    path: req.path
+  });
 });
 
-// Test endpoint without Clerk authentication
-app.post('/api/users/clerk-sync-test', async (req, res) => {
-  try {
-    console.log('=== Clerk sync test endpoint called ===');
-    console.log('Request body:', req.body);
-    console.log('Request headers:', req.headers);
-    
-    const { clerkId, email, username, firstName, lastName, imageUrl } = req.body;
-    if (!clerkId || !email) {
-      console.log('Missing required fields:', { clerkId, email });
-      return res.status(400).json({ error: 'Thiếu thông tin user Clerk' });
-    }
-    
-    console.log('Looking for user with clerkId:', clerkId);
-    let user = await User.findOne({ clerkId });
-    
-    if (!user) {
-      console.log('Creating new user with clerkId:', clerkId);
-      user = new User({
-        clerkId,
-        email,
-        username,
-        avatar: imageUrl,
-        bio: '',
-        description: '',
-        badges: ['member'],
-        firstName,
-        lastName
-      });
-    } else {
-      console.log('Updating existing user with clerkId:', clerkId);
-      user.email = email;
-      user.username = username;
-      user.avatar = imageUrl;
-      user.firstName = firstName;
-      user.lastName = lastName;
-    }
-    
-    await user.save();
-    console.log('User saved successfully:', user._id);
-    res.json({ message: 'Đồng bộ user thành công (test)', user });
-  } catch (error) {
-    console.error('Clerk sync test error:', error);
-    res.status(500).json({ error: error.message });
-  }
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({
+    error: 'API endpoint not found',
+    path: req.path,
+    timestamp: new Date().toISOString()
+  });
 });
 
 // Start server

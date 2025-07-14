@@ -2,27 +2,43 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
-const rateLimit = require('express-rate-limit');
 
 const router = express.Router();
 
-// Rate limiting for email verification
-const emailVerificationLimiter = rateLimit({
-  windowMs: 5 * 60 * 1000, // 5 minutes
-  max: 3, // limit each IP to 3 requests per windowMs
-  message: { message: 'Quá nhiều yêu cầu gửi mã. Vui lòng thử lại sau 5 phút.' }
+// Đăng ký
+router.post('/register', async (req, res) => {
+  try {
+    const { username, email, password, role } = req.body;
+    const existingUser = await User.findOne({ $or: [{ email }, { username }] });
+    if (existingUser) return res.status(400).json({ message: 'User already exists' });
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const user = new User({ username, email, password: hashedPassword, role });
+    await user.save();
+    res.status(201).json({ message: 'User registered successfully' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
 });
 
-// Rate limiting for registration
-const registrationLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // limit each IP to 5 requests per windowMs
-  message: { message: 'Quá nhiều yêu cầu đăng ký. Vui lòng thử lại sau 15 phút.' }
+// Đăng nhập
+router.post('/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    const user = await User.findOne({ email });
+    if (!user) return res.status(400).json({ message: 'Invalid credentials' });
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) return res.status(400).json({ message: 'Invalid credentials' });
+    const token = jwt.sign({ userId: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    res.json({ token, user: { _id: user._id, username: user.username, email: user.email, role: user.role } });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
 });
 
 // Lấy danh sách user
 router.get('/', async (req, res) => {
   try {
+    // NOTE: Mongoose v7+ still supports Model.find(). If using native MongoDB driver, use collection.find({}).toArray().
     const users = await User.find().select('-password');
     res.json(users);
   } catch (err) {
@@ -35,50 +51,7 @@ router.get('/:id', async (req, res) => {
   try {
     const user = await User.findById(req.params.id).select('-password');
     if (!user) return res.status(404).json({ message: 'User not found' });
-    res.json({ user });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
-// Cập nhật user profile
-router.put('/:id', async (req, res) => {
-  try {
-    const user = await User.findById(req.params.id);
-    if (!user) return res.status(404).json({ message: 'User not found' });
-
-    const {
-      avatar, bio, description, vtuber_description, artist_description,
-      profile_email, facebook, website, youtube, twitch, twitter, instagram
-    } = req.body;
-
-    // Update fields
-    if (avatar !== undefined) user.avatar = avatar;
-    if (bio !== undefined) user.bio = bio;
-    if (description !== undefined) user.description = description;
-    if (vtuber_description !== undefined) user.vtuber_description = vtuber_description;
-    if (artist_description !== undefined) user.artist_description = artist_description;
-    if (profile_email !== undefined) user.profile_email = profile_email;
-    if (facebook !== undefined) user.facebook = facebook;
-    if (website !== undefined) user.website = website;
-    if (youtube !== undefined) user.youtube = youtube;
-    if (twitch !== undefined) user.twitch = twitch;
-    if (twitter !== undefined) user.twitter = twitter;
-    if (instagram !== undefined) user.instagram = instagram;
-
-    await user.save();
-    res.json({ user });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
-// Lấy commissions của user
-router.get('/:id/commissions', async (req, res) => {
-  try {
-    const { Commission } = require('../models/Commission');
-    const commissions = await Commission.find({ user: req.params.id });
-    res.json({ commissions });
+    res.json(user);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -91,6 +64,46 @@ router.delete('/:id', async (req, res) => {
     res.json({ message: 'User deleted' });
   } catch (err) {
     res.status(500).json({ message: err.message });
+  }
+});
+
+// Clerk sync endpoint
+router.post('/clerk-sync', async (req, res) => {
+  try {
+    const { clerkId, email, username, avatar } = req.body;
+    if (!clerkId || !email) {
+      return res.status(400).json({ error: 'clerkId và email là bắt buộc' });
+    }
+    let user = await User.findOne({ clerkId });
+    if (user) {
+      // Đã có user, trả về profile
+      return res.json({
+        user,
+        message: 'User đã tồn tại, trả về profile.'
+      });
+    }
+    // Nếu chưa có, tạo mới user với các trường mặc định
+    user = await User.create({
+      clerkId,
+      email,
+      username: username || '',
+      avatar: avatar || '',
+      badges: ['member'],
+      bio: '',
+      description: '',
+      facebook: '',
+      website: '',
+      profile_email: '',
+      vtuber_description: '',
+      artist_description: ''
+    });
+    return res.status(201).json({
+      user,
+      message: 'Tạo user mới thành công.'
+    });
+  } catch (error) {
+    console.error('Clerk sync error:', error);
+    res.status(500).json({ error: 'Lỗi server khi đồng bộ user với Clerk.' });
   }
 });
 
