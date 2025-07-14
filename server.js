@@ -756,20 +756,18 @@ app.get('/api/users/vote', async (req, res) => {
   }
 });
 
-// Get user by ID
+// Get user by ID or clerkId
 app.get('/api/users/:id', async (req, res) => {
-  try {
-    const userId = req.params.id;
-    const user = await User.findById(userId);
-    
-    if (!user) {
-      return res.status(404).json({ error: 'Người dùng không tồn tại' });
-    }
-
-    res.json({ user });
-  } catch (error) {
-    return res.status(500).json({ error: 'Lỗi server' });
+  const { id } = req.params;
+  let user = null;
+  if (id.match(/^[0-9a-fA-F]{24}$/)) {
+    user = await User.findById(id);
   }
+  if (!user) {
+    user = await User.findOne({ clerkId: id });
+  }
+  if (!user) return res.status(404).json({ error: 'Người dùng không tồn tại' });
+  res.json({ user });
 });
 
 // Update user profile
@@ -919,14 +917,19 @@ app.get('/api/commissions/:id', async (req, res) => {
   }
 });
 
-// Get commissions by user
+// Get commissions by user (by _id hoặc clerkId)
 app.get('/api/users/:id/commissions', async (req, res) => {
-  try {
-    const commissions = await Commission.find({ user_id: req.params.id }).sort({ created_at: -1 });
-    res.json({ commissions });
-  } catch (error) {
-    res.status(500).json({ error: 'Lỗi server' });
+  const { id } = req.params;
+  let user = null;
+  if (id.match(/^[0-9a-fA-F]{24}$/)) {
+    user = await User.findById(id);
   }
+  if (!user) {
+    user = await User.findOne({ clerkId: id });
+  }
+  if (!user) return res.status(404).json({ error: 'Người dùng không tồn tại' });
+  const commissions = await Commission.find({ user_id: user._id }).sort({ created_at: -1 });
+  res.json({ commissions });
 });
 
 // Delete commission (artist can only delete if no pending orders)
