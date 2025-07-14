@@ -9,6 +9,7 @@ const mongoose = require('mongoose');
 const path = require('path');
 const cloudinary = require('cloudinary').v2;
 const multer = require('multer');
+const userRoutes = require('../routes/userRoutes');
 
 // Cloudinary configuration
 cloudinary.config({
