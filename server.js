@@ -9,6 +9,7 @@ const mongoose = require('mongoose');
 const path = require('path');
 const cloudinary = require('cloudinary').v2;
 const multer = require('multer');
+const clerkAuth = require('./middleware/clerkAuth');
 
 // Cloudinary configuration
 cloudinary.config({
@@ -286,9 +287,9 @@ mongoose.connect(MONGODB_URI, {
 
 // Mongoose User model
 const userSchema = new mongoose.Schema({
+  clerkId: { type: String, unique: true, sparse: true },
   username: { type: String, unique: true },
   email: { type: String, unique: true },
-  password: String,
   role: { type: String, enum: ['user', 'admin', 'artist'], default: 'user' },
   avatar: { type: String, default: '' },
   bio: String,
@@ -302,15 +303,13 @@ const userSchema = new mongoose.Schema({
   profile_email: { type: String }, // Allow multiple users to have same profile_email
   vtuber_description: String,
   artist_description: String,
-  // Email verification fields
-  emailVerified: { type: Boolean, default: false },
-  emailVerificationCode: String,
-  emailVerificationExpires: Date,
   // Social media fields
   youtube: String,
   twitch: String,
   twitter: String,
-  instagram: String
+  instagram: String,
+  firstName: String,
+  lastName: String
 });
 const User = mongoose.model('User', userSchema);
 
@@ -844,7 +843,7 @@ app.put('/api/users/:id', authenticateToken, async (req, res) => {
 });
 
 // Create commission
-app.post('/api/commissions', authenticateToken, async (req, res) => {
+app.post('/api/commissions', clerkAuth, async (req, res) => {
   try {
     const {
       title, description, type, price, currency, deadline, requirements, examples, tags
@@ -1826,8 +1825,7 @@ app.get('/api/test/debug', async (req, res) => {
       },
       database: {
         connectionState: dbStatus,
-        connected: dbStatus === 1
-      }
+        connected: dbStatus === 1      }
     });
     
   } catch (error) {
@@ -2035,6 +2033,40 @@ setInterval(cleanupExpiredTempUsers, 30 * 60 * 1000);
 
 // Also run cleanup on startup
 cleanupExpiredTempUsers();
+
+// Đồng bộ user Clerk với MongoDB
+app.post('/api/users/clerk-sync', clerkAuth, async (req, res) => {
+  try {
+    const { clerkId, email, username, firstName, lastName, imageUrl } = req.body;
+    if (!clerkId || !email) {
+      return res.status(400).json({ error: 'Thiếu thông tin user Clerk' });
+    }
+    let user = await User.findOne({ clerkId });
+    if (!user) {
+      user = new User({
+        clerkId,
+        email,
+        username,
+        avatar: imageUrl,
+        bio: '',
+        description: '',
+        badges: ['member'],
+        firstName,
+        lastName
+      });
+    } else {
+      user.email = email;
+      user.username = username;
+      user.avatar = imageUrl;
+      user.firstName = firstName;
+      user.lastName = lastName;
+    }
+    await user.save();
+    res.json({ message: 'Đồng bộ user thành công', user });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // Start server
 app.listen(PORT, '0.0.0.0', () => {
