@@ -1,6 +1,7 @@
 const express = require('express');
 const Order = require('../models/Order');
 const Commission = require('../models/Commission');
+const User = require('../models/User');
 const { verifyToken } = require('@clerk/clerk-sdk-node');
 
 const router = express.Router();
@@ -17,7 +18,12 @@ async function clerkAuth(req, res, next) {
     if (!session || !userId) {
       return res.status(401).json({ message: 'Invalid Clerk session' });
     }
-    req.user = { id: userId };
+    // Lấy user từ DB để lấy role
+    const user = await User.findOne({ clerkId: userId });
+    if (!user) {
+      return res.status(401).json({ message: 'User not found in DB' });
+    }
+    req.user = { id: userId, role: user.role };
     next();
   } catch (err) {
     return res.status(401).json({ message: 'Invalid Clerk session', error: err.message });
