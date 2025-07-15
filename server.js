@@ -753,7 +753,7 @@ app.put('/api/users/:id', authenticateToken, async (req, res) => {
 });
 
 // Create commission
-app.post('/api/commissions', authenticateToken, async (req, res) => {
+app.post('/api/commissions', clerkAuth, async (req, res) => {
   try {
     const {
       title, description, type, price, currency, deadline, requirements, examples, tags
@@ -840,7 +840,7 @@ app.get('/api/users/:id/commissions', async (req, res) => {
 });
 
 // Delete commission (artist can only delete if no pending orders)
-app.delete('/api/commissions/:id', authenticateToken, async (req, res) => {
+app.delete('/api/commissions/:id', clerkAuth, async (req, res) => {
   try {
     const commission = await Commission.findById(req.params.id);
     if (!commission) return res.status(404).json({ error: 'Commission không tồn tại' });
@@ -1134,7 +1134,7 @@ app.get('/api/orders', clerkAuth, async (req, res) => {
 });
 
 // Upload image to Cloudinary
-app.post('/api/upload/image', authenticateToken, upload.single('image'), async (req, res) => {
+app.post('/api/upload/image', clerkAuth, upload.single('image'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'Không có file được upload' });
@@ -1167,7 +1167,7 @@ app.post('/api/upload/image', authenticateToken, upload.single('image'), async (
 });
 
 // Upload multiple images to Cloudinary
-app.post('/api/upload/images', authenticateToken, upload.array('images', 10), async (req, res) => {
+app.post('/api/upload/images', clerkAuth, upload.array('images', 10), async (req, res) => {
   try {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ error: 'Không có file được upload' });
@@ -1206,7 +1206,7 @@ app.post('/api/upload/images', authenticateToken, upload.array('images', 10), as
 });
 
 // Delete image from Cloudinary
-app.delete('/api/upload/image/:public_id', authenticateToken, async (req, res) => {
+app.delete('/api/upload/image/:public_id', clerkAuth, async (req, res) => {
   try {
     const { public_id } = req.params;
     
@@ -1224,7 +1224,7 @@ app.delete('/api/upload/image/:public_id', authenticateToken, async (req, res) =
 });
 
 // Delete image from Cloudinary by URL
-app.delete('/api/upload/image-by-url', authenticateToken, async (req, res) => {
+app.delete('/api/upload/image-by-url', clerkAuth, async (req, res) => {
   try {
     const { imageUrl } = req.body;
     
