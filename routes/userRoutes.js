@@ -57,6 +57,17 @@ router.get('/:id', async (req, res) => {
   }
 });
 
+// Lấy user theo clerkId
+router.get('/clerk/:clerkId', async (req, res) => {
+  try {
+    const user = await User.findOne({ clerkId: req.params.clerkId });
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    res.json({ user });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // Xóa user
 router.delete('/:id', async (req, res) => {
   try {

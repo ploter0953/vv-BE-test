@@ -1,32 +1,38 @@
 const express = require('express');
 const Order = require('../models/Order');
 const Commission = require('../models/Commission');
-const jwt = require('jsonwebtoken');
+const { verifySession } = require('@clerk/clerk-sdk-node');
 
 const router = express.Router();
 
-// Middleware xác thực JWT
-function auth(req, res, next) {
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return res.status(401).json({ message: 'No token' });
+// Middleware xác thực Clerk
+async function clerkAuth(req, res, next) {
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded;
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ message: 'No Clerk token' });
+    }
+    const token = authHeader.replace('Bearer ', '');
+    const session = await verifySession(token);
+    if (!session || !session.userId) {
+      return res.status(401).json({ message: 'Invalid Clerk session' });
+    }
+    req.user = { id: session.userId };
     next();
-  } catch {
-    res.status(401).json({ message: 'Invalid token' });
+  } catch (err) {
+    return res.status(401).json({ message: 'Invalid Clerk session', error: err.message });
   }
 }
 
 // Tạo order
-router.post('/', auth, async (req, res) => {
+router.post('/', clerkAuth, async (req, res) => {
   try {
     const { commissionId } = req.body;
     const commission = await Commission.findById(commissionId);
     if (!commission) return res.status(404).json({ message: 'Commission not found' });
     const order = new Order({
       commission: commissionId,
-      buyer: req.user.userId,
+      buyer: req.user.id,
     });
     await order.save();
     res.status(201).json(order);
@@ -36,7 +42,7 @@ router.post('/', auth, async (req, res) => {
 });
 
 // Lấy tất cả order
-router.get('/', auth, async (req, res) => {
+router.get('/', clerkAuth, async (req, res) => {
   try {
     const orders = await Order.find().populate('commission').populate('buyer', 'username email');
     res.json(orders);
@@ -46,7 +52,7 @@ router.get('/', auth, async (req, res) => {
 });
 
 // Lấy order theo id
-router.get('/:id', auth, async (req, res) => {
+router.get('/:id', clerkAuth, async (req, res) => {
   try {
     const order = await Order.findById(req.params.id).populate('commission').populate('buyer', 'username email');
     if (!order) return res.status(404).json({ message: 'Order not found' });
@@ -57,12 +63,12 @@ router.get('/:id', auth, async (req, res) => {
 });
 
 // Cập nhật trạng thái order
-router.put('/:id', auth, async (req, res) => {
+router.put('/:id', clerkAuth, async (req, res) => {
   try {
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ message: 'Order not found' });
     // Chỉ buyer hoặc admin mới được cập nhật
-    if (order.buyer.toString() !== req.user.userId && req.user.role !== 'admin') {
+    if (order.buyer.toString() !== req.user.id && req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Forbidden' });
     }
     order.status = req.body.status || order.status;
@@ -74,12 +80,12 @@ router.put('/:id', auth, async (req, res) => {
 });
 
 // Xóa order
-router.delete('/:id', auth, async (req, res) => {
+router.delete('/:id', clerkAuth, async (req, res) => {
   try {
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ message: 'Order not found' });
     // Chỉ buyer hoặc admin mới được xóa
-    if (order.buyer.toString() !== req.user.userId && req.user.role !== 'admin') {
+    if (order.buyer.toString() !== req.user.id && req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Forbidden' });
     }
     await order.deleteOne();
