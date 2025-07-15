@@ -550,8 +550,7 @@ app.put('/api/users/:id', requireAuth(), async (req, res) => {
     console.log('Profile updated successfully for user:', userId);
     res.json({ message: 'Cập nhật profile thành công' });
   } catch (error) {
-    console.error('Profile update error:', error);
-    
+    console.error('[PROFILE UPDATE ERROR] Lỗi khi cập nhật profile cho user', userId, ':', error);
     // Handle specific MongoDB errors
     if (error.code === 11000) {
       // This should not happen anymore since we removed unique constraint
