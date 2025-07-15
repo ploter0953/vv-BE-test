@@ -14,7 +14,7 @@ const Commission = require('./models/Commission');
 const Order = require('./models/Order');
 const Vote = require('./models/Vote');
 const Feedback = require('./models/Feedback');
-const { clerkExpressWithAuth } = require('@clerk/express');
+const { requireAuth } = require('@clerk/express');
 
 // Cloudinary configuration
 cloudinary.config({
@@ -45,7 +45,7 @@ const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 
 // Middleware xác thực Clerk
-const clerkMiddleware = clerkExpressWithAuth({ secretKey: process.env.CLERK_SECRET_KEY });
+// const clerkMiddleware = clerkExpressWithAuth({ secretKey: process.env.CLERK_SECRET_KEY });
 
 // Example usage for protected routes:
 // app.use('/api/orders', clerkMiddleware);
@@ -317,7 +317,7 @@ app.get('/api/test/commissions', async (req, res) => {
 });
 
 // Clerk sync endpoint from userRoutes.js
-app.post('/api/users/clerk-sync', clerkMiddleware, async (req, res) => {
+app.post('/api/users/clerk-sync', requireAuth(), async (req, res) => {
   try {
     const { clerkId, email, username, avatar } = req.body;
     if (!clerkId || !email) {
@@ -494,7 +494,7 @@ app.get('/api/users/:id', async (req, res) => {
 });
 
 // Update user profile
-app.put('/api/users/:id', clerkMiddleware, async (req, res) => {
+app.put('/api/users/:id', requireAuth(), async (req, res) => {
   const userId = req.params.id;
   const { avatar, bio, facebook, zalo, phone, website, profile_email, vtuber_description, artist_description, description } = req.body;
 
@@ -564,7 +564,7 @@ app.put('/api/users/:id', clerkMiddleware, async (req, res) => {
 });
 
 // Create commission
-app.post('/api/commissions', clerkMiddleware, async (req, res) => {
+app.post('/api/commissions', requireAuth(), async (req, res) => {
   try {
     const {
       title, description, type, price, currency, deadline, requirements, examples, tags
@@ -651,7 +651,7 @@ app.get('/api/users/:id/commissions', async (req, res) => {
 });
 
 // Delete commission (artist can only delete if no pending orders)
-app.delete('/api/commissions/:id', clerkMiddleware, async (req, res) => {
+app.delete('/api/commissions/:id', requireAuth(), async (req, res) => {
   try {
     const commission = await Commission.findById(req.params.id);
     if (!commission) return res.status(404).json({ error: 'Commission không tồn tại' });
@@ -697,7 +697,7 @@ app.delete('/api/commissions/:id', clerkMiddleware, async (req, res) => {
 });
 
 // Create order (customer places commission)
-app.post('/api/commissions/:id/order', clerkMiddleware, async (req, res) => {
+app.post('/api/commissions/:id/order', requireAuth(), async (req, res) => {
   try {
     const commission = await Commission.findById(req.params.id);
     if (!commission || commission.status !== 'open') {
@@ -729,7 +729,7 @@ app.post('/api/commissions/:id/order', clerkMiddleware, async (req, res) => {
 });
 
 // Confirm order (artist confirms)
-app.put('/api/orders/:id/confirm', clerkMiddleware, async (req, res) => {
+app.put('/api/orders/:id/confirm', requireAuth(), async (req, res) => {
   try {
     const order = await Order.findById(req.params.id).populate('commission_id');
     if (!order) return res.status(404).json({ error: 'Đơn hàng không tồn tại' });
@@ -753,7 +753,7 @@ app.put('/api/orders/:id/confirm', clerkMiddleware, async (req, res) => {
 });
 
 // Complete order (artist marks as completed)
-app.put('/api/orders/:id/complete', clerkMiddleware, async (req, res) => {
+app.put('/api/orders/:id/complete', requireAuth(), async (req, res) => {
   try {
     const order = await Order.findById(req.params.id).populate('commission_id');
     if (!order) return res.status(404).json({ error: 'Đơn hàng không tồn tại' });
@@ -777,7 +777,7 @@ app.put('/api/orders/:id/complete', clerkMiddleware, async (req, res) => {
 });
 
 // Customer confirms completion
-app.put('/api/orders/:id/customer-confirm', clerkMiddleware, async (req, res) => {
+app.put('/api/orders/:id/customer-confirm', requireAuth(), async (req, res) => {
   try {
     const order = await Order.findById(req.params.id).populate('commission_id');
     if (!order) return res.status(404).json({ error: 'Đơn hàng không tồn tại' });
@@ -801,7 +801,7 @@ app.put('/api/orders/:id/customer-confirm', clerkMiddleware, async (req, res) =>
 });
 
 // Customer cancels order
-app.put('/api/orders/:id/cancel', clerkMiddleware, async (req, res) => {
+app.put('/api/orders/:id/cancel', requireAuth(), async (req, res) => {
   try {
     const order = await Order.findById(req.params.id).populate('commission_id');
     if (!order) return res.status(404).json({ error: 'Đơn hàng không tồn tại' });
@@ -827,7 +827,7 @@ app.put('/api/orders/:id/cancel', clerkMiddleware, async (req, res) => {
 });
 
 // Customer rejects completion
-app.put('/api/orders/:id/reject', clerkMiddleware, async (req, res) => {
+app.put('/api/orders/:id/reject', requireAuth(), async (req, res) => {
   try {
     const { rejection_reason } = req.body;
     const order = await Order.findById(req.params.id).populate('commission_id');
@@ -852,7 +852,7 @@ app.put('/api/orders/:id/reject', clerkMiddleware, async (req, res) => {
 });
 
 // Artist rejects order
-app.put('/api/orders/:id/artist-reject', clerkMiddleware, async (req, res) => {
+app.put('/api/orders/:id/artist-reject', requireAuth(), async (req, res) => {
   try {
     const { rejection_reason } = req.body;
     const order = await Order.findById(req.params.id).populate('commission_id');
@@ -924,7 +924,7 @@ app.put('/api/orders/auto-cancel-pending', async (req, res) => {
 });
 
 // Get orders for user (as artist or customer)
-app.get('/api/orders', clerkMiddleware, async (req, res) => {
+app.get('/api/orders', requireAuth(), async (req, res) => {
   try {
     const userId = req.user.id;
     const { role } = req.query; // 'artist' or 'customer'
@@ -945,7 +945,7 @@ app.get('/api/orders', clerkMiddleware, async (req, res) => {
 });
 
 // Upload image to Cloudinary
-app.post('/api/upload/image', clerkMiddleware, upload.single('image'), async (req, res) => {
+app.post('/api/upload/image', requireAuth(), upload.single('image'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'Không có file được upload' });
@@ -978,7 +978,7 @@ app.post('/api/upload/image', clerkMiddleware, upload.single('image'), async (re
 });
 
 // Upload multiple images to Cloudinary
-app.post('/api/upload/images', clerkMiddleware, upload.array('images', 10), async (req, res) => {
+app.post('/api/upload/images', requireAuth(), upload.array('images', 10), async (req, res) => {
   try {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ error: 'Không có file được upload' });
@@ -1017,7 +1017,7 @@ app.post('/api/upload/images', clerkMiddleware, upload.array('images', 10), asyn
 });
 
 // Delete image from Cloudinary
-app.delete('/api/upload/image/:public_id', clerkMiddleware, async (req, res) => {
+app.delete('/api/upload/image/:public_id', requireAuth(), async (req, res) => {
   try {
     const { public_id } = req.params;
     
@@ -1035,7 +1035,7 @@ app.delete('/api/upload/image/:public_id', clerkMiddleware, async (req, res) => 
 });
 
 // Delete image from Cloudinary by URL
-app.delete('/api/upload/image-by-url', clerkMiddleware, async (req, res) => {
+app.delete('/api/upload/image-by-url', requireAuth(), async (req, res) => {
   try {
     const { imageUrl } = req.body;
     
@@ -1063,7 +1063,7 @@ app.delete('/api/upload/image-by-url', clerkMiddleware, async (req, res) => {
 });
 
 // Vote for a VTuber (1 vote per day per user)
-app.post('/api/vote/vtuber', clerkMiddleware, async (req, res) => {
+app.post('/api/vote/vtuber', requireAuth(), async (req, res) => {
   try {
     const { voted_vtuber_id } = req.body;
     const voter_id = req.user.id;
@@ -1126,7 +1126,7 @@ app.post('/api/vote/vtuber', clerkMiddleware, async (req, res) => {
 });
 
 // Vote for an Artist (1 vote per day per user)
-app.post('/api/vote/artist', clerkMiddleware, async (req, res) => {
+app.post('/api/vote/artist', requireAuth(), async (req, res) => {
   try {
     const { voted_artist_id } = req.body;
     const voter_id = req.user.id;
@@ -1298,7 +1298,7 @@ app.get('/api/spotlight/artists', async (req, res) => {
 });
 
 // Get user's vote status for today
-app.get('/api/vote/status', clerkMiddleware, async (req, res) => {
+app.get('/api/vote/status', requireAuth(), async (req, res) => {
   try {
     const voter_id = req.user.id;
     
@@ -1387,7 +1387,7 @@ app.post('/api/feedback', async (req, res) => {
   }
 });
 
-app.get('/api/feedback', clerkMiddleware, async (req, res) => {
+app.get('/api/feedback', requireAuth(), async (req, res) => {
   try {
     // Only admin can view all feedback
     const user = await User.findById(req.user.id);
@@ -1409,7 +1409,7 @@ app.get('/api/feedback', clerkMiddleware, async (req, res) => {
   }
 });
 
-app.delete('/api/feedback/:id', clerkMiddleware, async (req, res) => {
+app.delete('/api/feedback/:id', requireAuth(), async (req, res) => {
   try {
     // Only admin can delete feedback
     const user = await User.findById(req.user.id);

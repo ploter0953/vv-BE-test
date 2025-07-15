@@ -1,15 +1,15 @@
 const express = require('express');
 const Commission = require('../models/Commission');
 const User = require('../models/User');
-const { clerkExpressWithAuth } = require('@clerk/express');
+const { requireAuth } = require('@clerk/express');
 
 const router = express.Router();
 
-// Apply clerkExpressWithAuth to all protected routes
-const clerkMiddleware = clerkExpressWithAuth({ secretKey: process.env.CLERK_SECRET_KEY });
+// Use requireAuth() for all protected routes:
+// router.post('/', requireAuth(), ...)
 
 // Tạo commission
-router.post('/', clerkMiddleware, async (req, res) => {
+router.post('/', requireAuth(), async (req, res) => {
   try {
     const { title, description, price } = req.body;
     const commission = new Commission({
@@ -47,7 +47,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // Cập nhật commission
-router.put('/:id', clerkMiddleware, async (req, res) => {
+router.put('/:id', requireAuth(), async (req, res) => {
   try {
     const commission = await Commission.findById(req.params.id);
     if (!commission) return res.status(404).json({ message: 'Not found' });
@@ -67,7 +67,7 @@ router.put('/:id', clerkMiddleware, async (req, res) => {
 });
 
 // Xóa commission
-router.delete('/:id', clerkMiddleware, async (req, res) => {
+router.delete('/:id', requireAuth(), async (req, res) => {
   try {
     const commission = await Commission.findById(req.params.id);
     if (!commission) return res.status(404).json({ message: 'Not found' });
