@@ -15,6 +15,8 @@ const orderRoutes = require('./routes/orderRoutes');
 const User = require('./models/User');
 const Commission = require('./models/Commission');
 const Order = require('./models/Order');
+const Vote = require('./models/Vote');
+const Feedback = require('./models/Feedback');
 
 // Cloudinary configuration
 cloudinary.config({
@@ -246,60 +248,6 @@ async function fixProfileEmailIndex() {
 
 // Call the fix function when the app starts
 fixProfileEmailIndex();
-
-// Commission Schema
-const commissionSchema = new mongoose.Schema({
-  title: String,
-  description: String,
-  type: Number,
-  price: Number,
-  currency: { type: String, default: 'VND' },
-  status: { type: String, default: 'open' },
-  user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  artist_name: String,
-  artist_avatar: String,
-  deadline: String,
-  requirements: [String],
-  examples: [String],
-  tags: [String],
-  created_at: { type: Date, default: Date.now }
-});
-const Commission = mongoose.model('Commission', commissionSchema);
-
-// Order Schema
-const orderSchema = new mongoose.Schema({
-  commission_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Commission' },
-  customer_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  artist_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  status: { type: String, default: 'pending' },
-  created_at: { type: Date, default: Date.now },
-  confirmed_at: Date,
-  completed_at: Date,
-  customer_confirmed: { type: Boolean, default: false },
-  rejection_reason: String
-});
-const Order = mongoose.model('Order', orderSchema);
-
-// Vote Schema for VTuber and Artist voting
-const voteSchema = new mongoose.Schema({
-  voter_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  voted_vtuber_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // For VTuber votes
-  voted_artist_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // For Artist votes
-  vote_type: { type: String, enum: ['vtuber', 'artist'], required: true }, // Type of vote
-  created_at: { type: Date, default: Date.now }
-});
-const Vote = mongoose.model('Vote', voteSchema);
-
-// Feedback Schema
-const feedbackSchema = new mongoose.Schema({
-  user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  name: { type: String, required: true },
-  email: { type: String, required: true },
-  subject: { type: String, required: true },
-  message: { type: String, required: true },
-  created_at: { type: Date, default: Date.now }
-});
-const Feedback = mongoose.model('Feedback', feedbackSchema);
 
 // Helper function to extract public_id from Cloudinary URL
 function extractPublicIdFromCloudinaryUrl(url) {
