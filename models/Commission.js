@@ -5,7 +5,7 @@ const commissionSchema = new mongoose.Schema({
   description: { type: String },
   price: { type: Number, required: true },
   status: { type: String, enum: ['open', 'in_progress', 'completed', 'cancelled'], default: 'open' },
-  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  user: { type: String, required: true },
 }, { timestamps: true });
 
 module.exports = mongoose.model('Commission', commissionSchema); 
