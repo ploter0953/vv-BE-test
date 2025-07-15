@@ -1722,6 +1722,9 @@ app.post('/api/users/clerk-sync', async (req, res) => {
   }
 });
 
+// Mount userRoutes (ưu tiên /clerk/:clerkId trước /:id)
+app.use('/api/users', require('./routes/userRoutes'));
+
 // Global error handler
 app.use((err, req, res, next) => {
   console.error('Global error handler:', err);
