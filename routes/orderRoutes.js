@@ -2,12 +2,13 @@ const express = require('express');
 const Order = require('../models/Order');
 const Commission = require('../models/Commission');
 const User = require('../models/User');
-const ClerkExpressWithAuth = require('@clerk/express');
+const { clerkExpressWithAuth } = require('@clerk/express');
+const clerkMiddleware = clerkExpressWithAuth({ secretKey: process.env.CLERK_SECRET_KEY });
 
 const router = express.Router();
 
 // Tạo order
-router.post('/', ClerkExpressWithAuth, async (req, res) => {
+router.post('/', clerkMiddleware, async (req, res) => {
   try {
     const { commissionId } = req.body;
     const commission = await Commission.findById(commissionId);
@@ -24,7 +25,7 @@ router.post('/', ClerkExpressWithAuth, async (req, res) => {
 });
 
 // Lấy tất cả order
-router.get('/', ClerkExpressWithAuth, async (req, res) => {
+router.get('/', clerkMiddleware, async (req, res) => {
   try {
     const orders = await Order.find().populate('commission').populate('buyer', 'username email');
     res.json(orders);
@@ -34,7 +35,7 @@ router.get('/', ClerkExpressWithAuth, async (req, res) => {
 });
 
 // Lấy order theo id
-router.get('/:id', ClerkExpressWithAuth, async (req, res) => {
+router.get('/:id', clerkMiddleware, async (req, res) => {
   try {
     const order = await Order.findById(req.params.id).populate('commission').populate('buyer', 'username email');
     if (!order) return res.status(404).json({ message: 'Order not found' });
@@ -45,7 +46,7 @@ router.get('/:id', ClerkExpressWithAuth, async (req, res) => {
 });
 
 // Cập nhật trạng thái order
-router.put('/:id', ClerkExpressWithAuth, async (req, res) => {
+router.put('/:id', clerkMiddleware, async (req, res) => {
   try {
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ message: 'Order not found' });
@@ -63,7 +64,7 @@ router.put('/:id', ClerkExpressWithAuth, async (req, res) => {
 });
 
 // Xóa order
-router.delete('/:id', ClerkExpressWithAuth, async (req, res) => {
+router.delete('/:id', clerkMiddleware, async (req, res) => {
   try {
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ message: 'Order not found' });

@@ -1,12 +1,12 @@
 const express = require('express');
 const Commission = require('../models/Commission');
 const User = require('../models/User');
-const { ClerkExpressWithAuth } = require('@clerk/express');
+const { clerkExpressWithAuth } = require('@clerk/express');
 
 const router = express.Router();
 
-// Apply ClerkExpressWithAuth to all protected routes
-const clerkMiddleware = ClerkExpressWithAuth({ secretKey: process.env.CLERK_SECRET_KEY });
+// Apply clerkExpressWithAuth to all protected routes
+const clerkMiddleware = clerkExpressWithAuth({ secretKey: process.env.CLERK_SECRET_KEY });
 
 // Tạo commission
 router.post('/', clerkMiddleware, async (req, res) => {

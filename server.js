@@ -15,7 +15,7 @@ const Commission = require('./models/Commission');
 const Order = require('./models/Order');
 const Vote = require('./models/Vote');
 const Feedback = require('./models/Feedback');
-const { ClerkExpressWithAuth } = require('@clerk/express');
+const { clerkExpressWithAuth } = require('@clerk/express');
 
 // Cloudinary configuration
 cloudinary.config({
@@ -46,9 +46,7 @@ const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 
 // Middleware xác thực Clerk
-const clerkMiddleware = ClerkExpressWithAuth({
-  secretKey: process.env.CLERK_SECRET_KEY,
-});
+const clerkMiddleware = clerkExpressWithAuth({ secretKey: process.env.CLERK_SECRET_KEY });
 
 // Example usage for protected routes:
 // app.use('/api/orders', clerkMiddleware);
