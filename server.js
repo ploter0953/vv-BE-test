@@ -566,26 +566,33 @@ app.put('/api/users/:id', requireAuth(), async (req, res) => {
 // Create commission
 app.post('/api/commissions', requireAuth(), async (req, res) => {
   try {
+    const userId = req.auth.userId;
+    console.log('[POST /api/commissions] userId:', userId, '| body:', req.body);
     const {
       title, description, type, price, currency, deadline, requirements, examples, tags
     } = req.body;
-    if (!title || !description || !type || !price || !deadline) {
+    if (!title || !description || !price) {
       return res.status(400).json({ error: 'Thiếu thông tin bắt buộc' });
     }
-    const user = await User.findById(req.auth.userId);
+    const user = await User.findOne({ clerkId: userId });
     if (!user) return res.status(404).json({ error: 'User not found' });
     // Đảm bảo price là Number và không bị làm tròn sai
-    const priceNumber = Number(price);
-    if (isNaN(priceNumber) || priceNumber < 0) {
-      return res.status(400).json({ error: 'Giá trị price không hợp lệ' });
-    }
     const commission = await Commission.create({
-      title, description, type, price: priceNumber, currency: currency || 'VND',
-      status: 'open', user_id: user._id, artist_name: user.username, artist_avatar: user.avatar,
-      deadline, requirements: requirements || [], examples: examples || [], tags: tags || []
+      title,
+      description,
+      type,
+      price: Number(price),
+      currency: currency || 'VND',
+      deadline,
+      requirements,
+      examples,
+      tags,
+      user: userId
     });
-    res.status(201).json({ message: 'Commission tạo thành công', commission });
+    console.log('[POST /api/commissions] Created commission:', commission);
+    res.status(201).json(commission);
   } catch (error) {
+    console.error('[POST /api/commissions] Error:', error.stack || error);
     res.status(500).json({ error: 'Lỗi server', details: error.message });
   }
 });
