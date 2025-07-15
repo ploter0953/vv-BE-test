@@ -498,11 +498,11 @@ app.put('/api/users/:id', requireAuth(), async (req, res) => {
   const userId = req.params.id;
   const { avatar, bio, facebook, zalo, phone, website, profile_email, vtuber_description, artist_description, description } = req.body;
 
-  console.log('Profile update request:', { userId, userFromToken: req.user.id, body: req.body });
+  console.log('Profile update request:', { userId, userFromToken: req.auth.userId, body: req.body });
 
   // Check if user is updating their own profile
-  if (userId !== req.user.id.toString()) {
-    console.log('Permission denied: userId', userId, 'userFromToken', req.user.id);
+  if (userId !== req.auth.userId.toString()) {
+    console.log('Permission denied: userId', userId, 'userFromToken', req.auth.userId);
     return res.status(403).json({ error: 'Không có quyền cập nhật profile này' });
   }
 
@@ -572,7 +572,7 @@ app.post('/api/commissions', requireAuth(), async (req, res) => {
     if (!title || !description || !type || !price || !deadline) {
       return res.status(400).json({ error: 'Thiếu thông tin bắt buộc' });
     }
-    const user = await User.findById(req.user.id);
+    const user = await User.findById(req.auth.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
     // Đảm bảo price là Number và không bị làm tròn sai
     const priceNumber = Number(price);
@@ -655,7 +655,7 @@ app.delete('/api/commissions/:id', requireAuth(), async (req, res) => {
   try {
     const commission = await Commission.findById(req.params.id);
     if (!commission) return res.status(404).json({ error: 'Commission không tồn tại' });
-    if (commission.user_id.toString() !== req.user.id) {
+    if (commission.user_id.toString() !== req.auth.userId) {
       return res.status(403).json({ error: 'Không có quyền xóa commission này' });
     }
     const activeOrders = await Order.countDocuments({ commission_id: commission._id, status: { $in: ['pending', 'confirmed', 'waiting_customer_confirmation', 'customer_rejected'] } });
@@ -703,12 +703,12 @@ app.post('/api/commissions/:id/order', requireAuth(), async (req, res) => {
     if (!commission || commission.status !== 'open') {
       return res.status(404).json({ error: 'Commission không tồn tại hoặc không mở' });
     }
-    if (commission.user_id.toString() === req.user.id) {
+    if (commission.user_id.toString() === req.auth.userId) {
       return res.status(400).json({ error: 'Không thể đặt commission của chính mình' });
     }
     const order = await Order.create({
       commission_id: commission._id,
-      customer_id: req.user.id,
+      customer_id: req.auth.userId,
       artist_id: commission.user_id,
       status: 'pending'
     });
@@ -733,7 +733,7 @@ app.put('/api/orders/:id/confirm', requireAuth(), async (req, res) => {
   try {
     const order = await Order.findById(req.params.id).populate('commission_id');
     if (!order) return res.status(404).json({ error: 'Đơn hàng không tồn tại' });
-    if (order.artist_id.toString() !== req.user.id) {
+    if (order.artist_id.toString() !== req.auth.userId) {
       return res.status(403).json({ error: 'Không có quyền xác nhận đơn hàng này' });
     }
     if (order.status !== 'pending') {
@@ -757,7 +757,7 @@ app.put('/api/orders/:id/complete', requireAuth(), async (req, res) => {
   try {
     const order = await Order.findById(req.params.id).populate('commission_id');
     if (!order) return res.status(404).json({ error: 'Đơn hàng không tồn tại' });
-    if (order.artist_id.toString() !== req.user.id) {
+    if (order.artist_id.toString() !== req.auth.userId) {
       return res.status(403).json({ error: 'Không có quyền hoàn thành đơn hàng này' });
     }
     if (order.status !== 'confirmed' && order.status !== 'customer_rejected') {
@@ -781,7 +781,7 @@ app.put('/api/orders/:id/customer-confirm', requireAuth(), async (req, res) => {
   try {
     const order = await Order.findById(req.params.id).populate('commission_id');
     if (!order) return res.status(404).json({ error: 'Đơn hàng không tồn tại' });
-    if (order.customer_id.toString() !== req.user.id) {
+    if (order.customer_id.toString() !== req.auth.userId) {
       return res.status(403).json({ error: 'Không có quyền xác nhận đơn hàng này' });
     }
     if (order.status !== 'waiting_customer_confirmation') {
@@ -805,7 +805,7 @@ app.put('/api/orders/:id/cancel', requireAuth(), async (req, res) => {
   try {
     const order = await Order.findById(req.params.id).populate('commission_id');
     if (!order) return res.status(404).json({ error: 'Đơn hàng không tồn tại' });
-    if (order.customer_id.toString() !== req.user.id) {
+    if (order.customer_id.toString() !== req.auth.userId) {
       return res.status(403).json({ error: 'Không có quyền hủy đơn hàng này' });
     }
     if (order.status !== 'pending') {
@@ -832,7 +832,7 @@ app.put('/api/orders/:id/reject', requireAuth(), async (req, res) => {
     const { rejection_reason } = req.body;
     const order = await Order.findById(req.params.id).populate('commission_id');
     if (!order) return res.status(404).json({ error: 'Đơn hàng không tồn tại' });
-    if (order.customer_id.toString() !== req.user.id) {
+    if (order.customer_id.toString() !== req.auth.userId) {
       return res.status(403).json({ error: 'Không có quyền từ chối đơn hàng này' });
     }
     if (order.status !== 'waiting_customer_confirmation') {
@@ -857,7 +857,7 @@ app.put('/api/orders/:id/artist-reject', requireAuth(), async (req, res) => {
     const { rejection_reason } = req.body;
     const order = await Order.findById(req.params.id).populate('commission_id');
     if (!order) return res.status(404).json({ error: 'Đơn hàng không tồn tại' });
-    if (order.artist_id.toString() !== req.user.id) {
+    if (order.artist_id.toString() !== req.auth.userId) {
       return res.status(403).json({ error: 'Không có quyền từ chối đơn hàng này' });
     }
     // Allow artist to reject in pending, confirmed, or waiting_customer_confirmation
@@ -926,7 +926,7 @@ app.put('/api/orders/auto-cancel-pending', async (req, res) => {
 // Get orders for user (as artist or customer)
 app.get('/api/orders', requireAuth(), async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.auth.userId;
     const { role } = req.query; // 'artist' or 'customer'
     let filter = {};
     if (role === 'artist') {
@@ -1066,7 +1066,7 @@ app.delete('/api/upload/image-by-url', requireAuth(), async (req, res) => {
 app.post('/api/vote/vtuber', requireAuth(), async (req, res) => {
   try {
     const { voted_vtuber_id } = req.body;
-    const voter_id = req.user.id;
+    const voter_id = req.auth.userId;
 
     if (!voted_vtuber_id) {
       return res.status(400).json({ error: 'Vui lòng chọn VTuber để vote' });
@@ -1129,7 +1129,7 @@ app.post('/api/vote/vtuber', requireAuth(), async (req, res) => {
 app.post('/api/vote/artist', requireAuth(), async (req, res) => {
   try {
     const { voted_artist_id } = req.body;
-    const voter_id = req.user.id;
+    const voter_id = req.auth.userId;
 
     if (!voted_artist_id) {
       return res.status(400).json({ error: 'Vui lòng chọn Artist để vote' });
@@ -1300,7 +1300,7 @@ app.get('/api/spotlight/artists', async (req, res) => {
 // Get user's vote status for today
 app.get('/api/vote/status', requireAuth(), async (req, res) => {
   try {
-    const voter_id = req.user.id;
+    const voter_id = req.auth.userId;
     
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -1390,7 +1390,7 @@ app.post('/api/feedback', async (req, res) => {
 app.get('/api/feedback', requireAuth(), async (req, res) => {
   try {
     // Only admin can view all feedback
-    const user = await User.findById(req.user.id);
+    const user = await User.findById(req.auth.userId);
     if (!user || user.email !== 'huynguyen86297@gmail.com') {
       return res.status(403).json({ error: 'Không có quyền truy cập' });
     }
@@ -1412,7 +1412,7 @@ app.get('/api/feedback', requireAuth(), async (req, res) => {
 app.delete('/api/feedback/:id', requireAuth(), async (req, res) => {
   try {
     // Only admin can delete feedback
-    const user = await User.findById(req.user.id);
+    const user = await User.findById(req.auth.userId);
     if (!user || user.email !== 'huynguyen86297@gmail.com') {
       return res.status(403).json({ error: 'Không có quyền truy cập' });
     }
