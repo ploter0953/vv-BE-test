@@ -21,7 +21,8 @@
     "pg": "^8.11.3",
     "pg-pool": "^3.6.1",
     "sqlite3": "^5.1.6",
-    "@clerk/clerk-sdk-node": "^4.13.23"
+    "@clerk/clerk-sdk-node": "^4.13.23",
+    "@clerk/express": "^1.7.6"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"
