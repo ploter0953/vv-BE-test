@@ -500,28 +500,33 @@ app.put('/api/users/:id', requireAuth(), async (req, res) => {
 
   console.log('Profile update request:', { userId, userFromToken: req.auth.userId, body: req.body });
 
-  // Check if user is updating their own profile
-  if (userId !== req.auth.userId.toString()) {
+  // Tìm user theo _id hoặc clerkId
+  let user = null;
+  try {
+    user = await User.findById(userId);
+  } catch (e) {
+    // Nếu userId không phải ObjectId, bỏ qua lỗi
+  }
+  if (!user) {
+    user = await User.findOne({ clerkId: userId });
+  }
+  if (!user) {
+    console.log('User not found:', userId);
+    return res.status(404).json({ error: 'Người dùng không tồn tại' });
+  }
+
+  // Cho phép cập nhật nếu user._id == req.auth.userId hoặc user.clerkId == req.auth.userId
+  if (user._id.toString() !== req.auth.userId && user.clerkId !== req.auth.userId) {
     console.log('Permission denied: userId', userId, 'userFromToken', req.auth.userId);
     return res.status(403).json({ error: 'Không có quyền cập nhật profile này' });
   }
 
   try {
-    // Use findOneAndUpdate with optimistic locking to prevent race conditions
-    const user = await User.findById(userId);
-    if (!user) {
-      console.log('User not found:', userId);
-      return res.status(404).json({ error: 'Người dùng không tồn tại' });
-    }
-
     // Validate bio length (max 50 characters)
     if (bio && bio.length > 50) {
       return res.status(400).json({ error: 'Bio không được vượt quá 50 ký tự' });
     }
 
-    // Allow profile_email to be updated to any value (including existing ones)
-    // No need to check for duplicates since we removed unique constraint
-    
     // Update user fields
     const updateData = {
       avatar: avatar || user.avatar,
@@ -531,33 +536,27 @@ app.put('/api/users/:id', requireAuth(), async (req, res) => {
       zalo: zalo || user.zalo,
       phone: phone || user.phone,
       website: website || user.website,
-      profile_email: profile_email || user.profile_email, // Allow empty string or null
+      profile_email: profile_email || user.profile_email,
       vtuber_description: vtuber_description || user.vtuber_description,
       artist_description: artist_description || user.artist_description
     };
 
-    // Use findOneAndUpdate to prevent race conditions
-    const updatedUser = await User.findOneAndUpdate(
-      { _id: userId },
-      updateData,
-      { new: true, runValidators: true }
-    );
+    // Ghi log chi tiết trước khi cập nhật
+    console.log('[PROFILE UPDATE] User', userId, 'is updating profile. Old data:', user.toObject());
+    console.log('[PROFILE UPDATE] New data:', updateData);
 
+    const updatedUser = await User.findByIdAndUpdate(user._id, updateData, { new: true, runValidators: true });
     if (!updatedUser) {
       return res.status(404).json({ error: 'Người dùng không tồn tại' });
     }
-
     console.log('Profile updated successfully for user:', userId);
     res.json({ message: 'Cập nhật profile thành công' });
   } catch (error) {
     console.error('[PROFILE UPDATE ERROR] Lỗi khi cập nhật profile cho user', userId, ':', error);
-    // Handle specific MongoDB errors
     if (error.code === 11000) {
-      // This should not happen anymore since we removed unique constraint
       console.error('Unexpected duplicate key error:', error);
       return res.status(500).json({ error: 'Lỗi database không mong muốn. Vui lòng thử lại.' });
     }
-    
     res.status(500).json({ error: 'Lỗi khi cập nhật profile: ' + error.message });
   }
 });
@@ -640,7 +639,25 @@ app.get('/api/commissions/:id', async (req, res) => {
   try {
     const commission = await Commission.findById(req.params.id);
     if (!commission) return res.status(404).json({ error: 'Commission không tồn tại' });
-    res.json({ commission });
+    // Đảm bảo trả về đủ trường, không undefined/null
+    const safeCommission = {
+      _id: commission._id,
+      title: commission.title || '',
+      description: commission.description || '',
+      type: commission.type || 1,
+      price: commission.price || 0,
+      currency: commission.currency || 'VND',
+      status: commission.status || 'open',
+      user_id: commission.user_id || commission.user || '',
+      artist_name: commission.artist_name || '',
+      artist_avatar: commission.artist_avatar || '',
+      deadline: commission.deadline || '',
+      requirements: commission.requirements || [],
+      examples: commission.examples || [],
+      tags: commission.tags || [],
+      created_at: commission.created_at || new Date()
+    };
+    res.json({ commission: safeCommission });
   } catch (error) {
     res.status(500).json({ error: 'Lỗi server' });
   }
