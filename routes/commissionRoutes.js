@@ -1,31 +1,37 @@
 const express = require('express');
 const Commission = require('../models/Commission');
-const jwt = require('jsonwebtoken');
+const { verifyToken } = require('@clerk/clerk-sdk-node');
 
 const router = express.Router();
 
-// Middleware xác thực JWT
-function auth(req, res, next) {
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return res.status(401).json({ message: 'No token' });
+// Middleware xác thực Clerk
+async function clerkAuth(req, res, next) {
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded;
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ message: 'No Clerk token' });
+    }
+    const token = authHeader.replace('Bearer ', '');
+    const { session, userId } = await verifyToken(token);
+    if (!session || !userId) {
+      return res.status(401).json({ message: 'Invalid Clerk session' });
+    }
+    req.user = { id: userId };
     next();
-  } catch {
-    res.status(401).json({ message: 'Invalid token' });
+  } catch (err) {
+    return res.status(401).json({ message: 'Invalid Clerk session', error: err.message });
   }
 }
 
 // Tạo commission
-router.post('/', auth, async (req, res) => {
+router.post('/', clerkAuth, async (req, res) => {
   try {
     const { title, description, price } = req.body;
     const commission = new Commission({
       title,
       description,
       price,
-      user: req.user.userId,
+      user: req.user.id,
     });
     await commission.save();
     res.status(201).json(commission);
@@ -56,11 +62,11 @@ router.get('/:id', async (req, res) => {
 });
 
 // Cập nhật commission
-router.put('/:id', auth, async (req, res) => {
+router.put('/:id', clerkAuth, async (req, res) => {
   try {
     const commission = await Commission.findById(req.params.id);
     if (!commission) return res.status(404).json({ message: 'Not found' });
-    if (commission.user.toString() !== req.user.userId && req.user.role !== 'admin') {
+    if (commission.user.toString() !== req.user.id && req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Forbidden' });
     }
     Object.assign(commission, req.body);
@@ -72,11 +78,11 @@ router.put('/:id', auth, async (req, res) => {
 });
 
 // Xóa commission
-router.delete('/:id', auth, async (req, res) => {
+router.delete('/:id', clerkAuth, async (req, res) => {
   try {
     const commission = await Commission.findById(req.params.id);
     if (!commission) return res.status(404).json({ message: 'Not found' });
-    if (commission.user.toString() !== req.user.userId && req.user.role !== 'admin') {
+    if (commission.user.toString() !== req.user.id && req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Forbidden' });
     }
     await commission.deleteOne();

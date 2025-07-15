@@ -3,8 +3,6 @@ require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
 const path = require('path');
 const cloudinary = require('cloudinary').v2;
@@ -293,43 +291,6 @@ function extractPublicIdFromCloudinaryUrl(url) {
   
   return null;
 }
-// nothing
-// Helper function to hash password
-function hashPassword(password) {
-  return bcrypt.hashSync(password, 10);
-}
-
-// Helper function to compare password
-function comparePassword(password, hashedPassword) {
-  return bcrypt.compareSync(password, hashedPassword);
-}
-
-// Helper function to generate JWT token
-function generateToken(user) {
-  return jwt.sign(
-    { id: user.id, username: user.username, email: user.email },
-    JWT_SECRET,
-    { expiresIn: '7d' }
-  );
-}
-
-// Middleware to verify JWT token
-function authenticateToken(req, res, next) {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) {
-    return res.status(401).json({ error: 'Access token required' });
-  }
-
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) {
-      return res.status(403).json({ error: 'Invalid token' });
-    }
-    req.user = user;
-    next();
-  });
-}
 
 // Test endpoint
 app.get('/api/test', (req, res) => {
@@ -429,147 +390,6 @@ app.get('/api/health', (req, res) => {
 });
 
 // Routes
-
-// Register user
-app.post('/api/auth/register', async (req, res) => {
-  try {
-    const { username, email, password } = req.body;
-
-    // Validate input
-    if (!username || !email || !password) {
-      return res.status(400).json({ error: 'Tất cả các trường đều bắt buộc' });
-    }
-
-    if (password.length < 6) {
-      return res.status(400).json({ error: 'Mật khẩu phải có ít nhất 6 ký tự' });
-    }
-
-    // Check if user already exists by username
-    const existingUserByUsername = await User.findOne({ username });
-    if (existingUserByUsername) {
-      return res.status(400).json({ error: 'Tên người dùng đã được sử dụng' });
-    }
-
-    // Check if user already exists by email
-    const existingUserByEmail = await User.findOne({ email });
-    if (existingUserByEmail) {
-      return res.status(400).json({ error: 'Email đã được sử dụng' });
-    }
-
-    // Create new user
-    const hashedPassword = hashPassword(password);
-    const avatar = '';
-
-    const newUser = await User.create({ 
-      username, 
-      email, 
-      password: hashedPassword, 
-      avatar,
-      badges: ['member'], // Default badge for new users
-      // Initialize profile fields with empty values
-      bio: '',
-      description: '',
-      profile_email: '', // Initialize as empty string
-      facebook: '',
-      zalo: '',
-      phone: '',
-      website: '',
-      vtuber_description: '',
-      artist_description: ''
-    });
-
-    const token = generateToken(newUser);
-    res.status(201).json({
-      message: 'Đăng ký thành công',
-      user: {
-        id: newUser._id,
-        username: newUser.username,
-        email: newUser.email,
-        avatar: newUser.avatar,
-        bio: newUser.bio,
-        description: newUser.description,
-        profile_email: newUser.profile_email,
-        facebook: newUser.facebook,
-        zalo: newUser.zalo,
-        phone: newUser.phone,
-        website: newUser.website,
-        vtuber_description: newUser.vtuber_description,
-        artist_description: newUser.artist_description,
-        badges: newUser.badges
-      },
-      token
-    });
-  } catch (error) {
-    console.error('Registration error:', error);
-    if (error.code === 11000) {
-      // Duplicate key error
-      if (error.keyPattern.username) {
-        return res.status(400).json({ error: 'Tên người dùng đã được sử dụng' });
-      }
-      if (error.keyPattern.email) {
-        return res.status(400).json({ error: 'Email đã được sử dụng' });
-      }
-      if (error.keyPattern.profile_email) {
-        return res.status(400).json({ error: 'Profile email đã được sử dụng bởi người dùng khác' });
-      }
-    }
-    res.status(500).json({ error: 'Lỗi server' });
-  }
-});
-
-// Login user
-app.post('/api/auth/login', async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email và mật khẩu đều bắt buộc' });
-    }
-    // Tìm user theo email hoặc username
-    let user = await User.findOne({ email });
-    if (!user) {
-      user = await User.findOne({ username: email }); // Cho phép đăng nhập bằng username
-    }
-    if (!user || !comparePassword(password, user.password)) {
-      return res.status(401).json({ error: 'Email/Username hoặc mật khẩu không đúng' });
-    }
-    const token = generateToken(user);
-    res.json({
-      message: 'Đăng nhập thành công',
-      user: {
-        id: user._id,
-        username: user.username,
-        email: user.email,
-        avatar: user.avatar,
-        bio: user.bio,
-        description: user.description,
-        profile_email: user.profile_email,
-        facebook: user.facebook,
-        zalo: user.zalo,
-        phone: user.phone,
-        website: user.website,
-        vtuber_description: user.vtuber_description,
-        artist_description: user.artist_description,
-        badges: user.badges
-      },
-      token
-    });
-  } catch (error) {
-    res.status(500).json({ error: 'Lỗi server', details: error.message });
-  }
-});
-
-// Get current user
-app.get('/api/auth/me', authenticateToken, async (req, res) => {
-  try {
-    const user = await User.findById(req.user.id).select('-password');
-    if (!user) {
-      return res.status(404).json({ error: 'Người dùng không tồn tại' });
-    }
-    res.json({ user });
-  } catch (error) {
-    res.status(500).json({ error: 'Lỗi server' });
-  }
-});
 
 // Get all users (for artist profiles)
 app.get('/api/users', async (req, res) => {
@@ -683,7 +503,7 @@ app.get('/api/users/:id', async (req, res) => {
 });
 
 // Update user profile
-app.put('/api/users/:id', authenticateToken, async (req, res) => {
+app.put('/api/users/:id', clerkAuth, async (req, res) => {
   const userId = req.params.id;
   const { avatar, bio, facebook, zalo, phone, website, profile_email, vtuber_description, artist_description, description } = req.body;
 
@@ -886,7 +706,7 @@ app.delete('/api/commissions/:id', clerkAuth, async (req, res) => {
 });
 
 // Create order (customer places commission)
-app.post('/api/commissions/:id/order', authenticateToken, async (req, res) => {
+app.post('/api/commissions/:id/order', clerkAuth, async (req, res) => {
   try {
     const commission = await Commission.findById(req.params.id);
     if (!commission || commission.status !== 'open') {
@@ -918,7 +738,7 @@ app.post('/api/commissions/:id/order', authenticateToken, async (req, res) => {
 });
 
 // Confirm order (artist confirms)
-app.put('/api/orders/:id/confirm', authenticateToken, async (req, res) => {
+app.put('/api/orders/:id/confirm', clerkAuth, async (req, res) => {
   try {
     const order = await Order.findById(req.params.id).populate('commission_id');
     if (!order) return res.status(404).json({ error: 'Đơn hàng không tồn tại' });
@@ -942,7 +762,7 @@ app.put('/api/orders/:id/confirm', authenticateToken, async (req, res) => {
 });
 
 // Complete order (artist marks as completed)
-app.put('/api/orders/:id/complete', authenticateToken, async (req, res) => {
+app.put('/api/orders/:id/complete', clerkAuth, async (req, res) => {
   try {
     const order = await Order.findById(req.params.id).populate('commission_id');
     if (!order) return res.status(404).json({ error: 'Đơn hàng không tồn tại' });
@@ -966,7 +786,7 @@ app.put('/api/orders/:id/complete', authenticateToken, async (req, res) => {
 });
 
 // Customer confirms completion
-app.put('/api/orders/:id/customer-confirm', authenticateToken, async (req, res) => {
+app.put('/api/orders/:id/customer-confirm', clerkAuth, async (req, res) => {
   try {
     const order = await Order.findById(req.params.id).populate('commission_id');
     if (!order) return res.status(404).json({ error: 'Đơn hàng không tồn tại' });
@@ -990,7 +810,7 @@ app.put('/api/orders/:id/customer-confirm', authenticateToken, async (req, res) 
 });
 
 // Customer cancels order
-app.put('/api/orders/:id/cancel', authenticateToken, async (req, res) => {
+app.put('/api/orders/:id/cancel', clerkAuth, async (req, res) => {
   try {
     const order = await Order.findById(req.params.id).populate('commission_id');
     if (!order) return res.status(404).json({ error: 'Đơn hàng không tồn tại' });
@@ -1016,7 +836,7 @@ app.put('/api/orders/:id/cancel', authenticateToken, async (req, res) => {
 });
 
 // Customer rejects completion
-app.put('/api/orders/:id/reject', authenticateToken, async (req, res) => {
+app.put('/api/orders/:id/reject', clerkAuth, async (req, res) => {
   try {
     const { rejection_reason } = req.body;
     const order = await Order.findById(req.params.id).populate('commission_id');
@@ -1041,7 +861,7 @@ app.put('/api/orders/:id/reject', authenticateToken, async (req, res) => {
 });
 
 // Artist rejects order
-app.put('/api/orders/:id/artist-reject', authenticateToken, async (req, res) => {
+app.put('/api/orders/:id/artist-reject', clerkAuth, async (req, res) => {
   try {
     const { rejection_reason } = req.body;
     const order = await Order.findById(req.params.id).populate('commission_id');

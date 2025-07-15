@@ -1,7 +1,7 @@
 const express = require('express');
 const Order = require('../models/Order');
 const Commission = require('../models/Commission');
-const { verifySession } = require('@clerk/clerk-sdk-node');
+const { verifyToken } = require('@clerk/clerk-sdk-node');
 
 const router = express.Router();
 
@@ -13,11 +13,11 @@ async function clerkAuth(req, res, next) {
       return res.status(401).json({ message: 'No Clerk token' });
     }
     const token = authHeader.replace('Bearer ', '');
-    const session = await verifySession(token);
-    if (!session || !session.userId) {
+    const { session, userId } = await verifyToken(token);
+    if (!session || !userId) {
       return res.status(401).json({ message: 'Invalid Clerk session' });
     }
-    req.user = { id: session.userId };
+    req.user = { id: userId };
     next();
   } catch (err) {
     return res.status(401).json({ message: 'Invalid Clerk session', error: err.message });
