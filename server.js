@@ -934,13 +934,16 @@ app.get('/api/orders', requireAuth(), async (req, res) => {
     } else {
       filter.customer_id = userId;
     }
+    console.log('[GET /api/orders] userId:', userId, '| role:', role, '| filter:', filter);
     const orders = await Order.find(filter)
       .populate('commission_id')
       .populate('customer_id', 'username avatar profile_email')
       .populate('artist_id', 'username avatar profile_email');
+    console.log('[GET /api/orders] Found orders:', orders.length);
     res.json({ orders });
   } catch (error) {
-    res.status(500).json({ error: 'Lỗi server' });
+    console.error('[GET /api/orders] Error:', error.stack || error);
+    res.status(500).json({ error: 'Lỗi server', details: error.message });
   }
 });
 
