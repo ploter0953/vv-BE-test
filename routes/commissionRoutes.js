@@ -1,37 +1,22 @@
 const express = require('express');
 const Commission = require('../models/Commission');
-const { verifyToken } = require('@clerk/clerk-sdk-node');
+const User = require('../models/User');
+const { ClerkExpressWithAuth } = require('@clerk/express');
 
 const router = express.Router();
 
-// Middleware xác thực Clerk
-async function clerkAuth(req, res, next) {
-  try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ message: 'No Clerk token' });
-    }
-    const token = authHeader.replace('Bearer ', '');
-    const { session, userId } = await verifyToken(token);
-    if (!session || !userId) {
-      return res.status(401).json({ message: 'Invalid Clerk session' });
-    }
-    req.user = { id: userId };
-    next();
-  } catch (err) {
-    return res.status(401).json({ message: 'Invalid Clerk session', error: err.message });
-  }
-}
+// Apply ClerkExpressWithAuth to all protected routes
+const clerkMiddleware = ClerkExpressWithAuth({ secretKey: process.env.CLERK_SECRET_KEY });
 
 // Tạo commission
-router.post('/', clerkAuth, async (req, res) => {
+router.post('/', clerkMiddleware, async (req, res) => {
   try {
     const { title, description, price } = req.body;
     const commission = new Commission({
       title,
       description,
       price,
-      user: req.user.id,
+      user: req.auth.userId,
     });
     await commission.save();
     res.status(201).json(commission);
@@ -62,11 +47,15 @@ router.get('/:id', async (req, res) => {
 });
 
 // Cập nhật commission
-router.put('/:id', clerkAuth, async (req, res) => {
+router.put('/:id', clerkMiddleware, async (req, res) => {
   try {
     const commission = await Commission.findById(req.params.id);
     if (!commission) return res.status(404).json({ message: 'Not found' });
-    if (commission.user.toString() !== req.user.id && req.user.role !== 'admin') {
+    const user = await User.findOne({ clerkId: req.auth.userId });
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    if (commission.user.toString() !== req.auth.userId && user.role !== 'admin') {
       return res.status(403).json({ message: 'Forbidden' });
     }
     Object.assign(commission, req.body);
@@ -78,11 +67,15 @@ router.put('/:id', clerkAuth, async (req, res) => {
 });
 
 // Xóa commission
-router.delete('/:id', clerkAuth, async (req, res) => {
+router.delete('/:id', clerkMiddleware, async (req, res) => {
   try {
     const commission = await Commission.findById(req.params.id);
     if (!commission) return res.status(404).json({ message: 'Not found' });
-    if (commission.user.toString() !== req.user.id && req.user.role !== 'admin') {
+    const user = await User.findOne({ clerkId: req.auth.userId });
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    if (commission.user.toString() !== req.auth.userId && user.role !== 'admin') {
       return res.status(403).json({ message: 'Forbidden' });
     }
     await commission.deleteOne();
