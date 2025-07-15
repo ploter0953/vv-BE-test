@@ -17,6 +17,7 @@ const Commission = require('./models/Commission');
 const Order = require('./models/Order');
 const Vote = require('./models/Vote');
 const Feedback = require('./models/Feedback');
+const { verifySession } = require('@clerk/clerk-sdk-node');
 
 // Cloudinary configuration
 cloudinary.config({
@@ -45,6 +46,25 @@ const upload = multer({
 const app = express();
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+
+// Middleware xác thực Clerk
+async function clerkAuth(req, res, next) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ message: 'No Clerk token' });
+    }
+    const token = authHeader.replace('Bearer ', '');
+    const session = await verifySession(token);
+    if (!session || !session.userId) {
+      return res.status(401).json({ message: 'Invalid Clerk session' });
+    }
+    req.user = { id: session.userId };
+    next();
+  } catch (err) {
+    return res.status(401).json({ message: 'Invalid Clerk session', error: err.message });
+  }
+}
 
 // Parse allowed origins from environment variable
 const getAllowedOrigins = () => {
@@ -1093,7 +1113,7 @@ app.put('/api/orders/auto-cancel-pending', async (req, res) => {
 });
 
 // Get orders for user (as artist or customer)
-app.get('/api/orders', authenticateToken, async (req, res) => {
+app.get('/api/orders', clerkAuth, async (req, res) => {
   try {
     const userId = req.user.id;
     const { role } = req.query; // 'artist' or 'customer'
@@ -1232,7 +1252,7 @@ app.delete('/api/upload/image-by-url', authenticateToken, async (req, res) => {
 });
 
 // Vote for a VTuber (1 vote per day per user)
-app.post('/api/vote/vtuber', authenticateToken, async (req, res) => {
+app.post('/api/vote/vtuber', clerkAuth, async (req, res) => {
   try {
     const { voted_vtuber_id } = req.body;
     const voter_id = req.user.id;
@@ -1295,7 +1315,7 @@ app.post('/api/vote/vtuber', authenticateToken, async (req, res) => {
 });
 
 // Vote for an Artist (1 vote per day per user)
-app.post('/api/vote/artist', authenticateToken, async (req, res) => {
+app.post('/api/vote/artist', clerkAuth, async (req, res) => {
   try {
     const { voted_artist_id } = req.body;
     const voter_id = req.user.id;
@@ -1467,7 +1487,7 @@ app.get('/api/spotlight/artists', async (req, res) => {
 });
 
 // Get user's vote status for today
-app.get('/api/vote/status', authenticateToken, async (req, res) => {
+app.get('/api/vote/status', clerkAuth, async (req, res) => {
   try {
     const voter_id = req.user.id;
     
@@ -1556,7 +1576,7 @@ app.post('/api/feedback', async (req, res) => {
   }
 });
 
-app.get('/api/feedback', authenticateToken, async (req, res) => {
+app.get('/api/feedback', clerkAuth, async (req, res) => {
   try {
     // Only admin can view all feedback
     const user = await User.findById(req.user.id);
@@ -1578,7 +1598,7 @@ app.get('/api/feedback', authenticateToken, async (req, res) => {
   }
 });
 
-app.delete('/api/feedback/:id', authenticateToken, async (req, res) => {
+app.delete('/api/feedback/:id', clerkAuth, async (req, res) => {
   try {
     // Only admin can delete feedback
     const user = await User.findById(req.user.id);
