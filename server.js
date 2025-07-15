@@ -574,7 +574,7 @@ app.post('/api/commissions', requireAuth(), async (req, res) => {
     }
     const user = await User.findOne({ clerkId: userId });
     if (!user) return res.status(404).json({ error: 'User not found' });
-    // Đảm bảo price là Number và không bị làm tròn sai
+    // Đảm bảo price là số thực, không làm tròn, không parseInt
     const commission = await Commission.create({
       title,
       description,
@@ -1099,7 +1099,13 @@ app.post('/api/vote/vtuber', requireAuth(), async (req, res) => {
     }
 
     // Check if voted user exists and has VTuber badge
-    const votedUser = await User.findById(voted_vtuber_id);
+    let votedUser = null;
+    try {
+      votedUser = await User.findById(voted_vtuber_id);
+    } catch (e) {}
+    if (!votedUser) {
+      votedUser = await User.findOne({ clerkId: voted_vtuber_id });
+    }
     if (!votedUser) {
       return res.status(404).json({ error: 'VTuber không tồn tại' });
     }
@@ -1108,8 +1114,8 @@ app.post('/api/vote/vtuber', requireAuth(), async (req, res) => {
       return res.status(400).json({ error: 'Chỉ có thể vote cho user có badge VTuber' });
     }
 
-    // Check if voter is trying to vote for themselves
-    if (voter_id === voted_vtuber_id) {
+    // Check if voter is trying to vote for themselves (so sánh với cả _id và clerkId)
+    if (voter_id === votedUser._id.toString() || voter_id === votedUser.clerkId) {
       return res.status(400).json({ error: 'Không thể vote cho chính mình' });
     }
 
@@ -1135,7 +1141,7 @@ app.post('/api/vote/vtuber', requireAuth(), async (req, res) => {
     // Create new vote
     const newVote = await Vote.create({
       voter_id,
-      voted_vtuber_id,
+      voted_vtuber_id: votedUser._id.toString(),
       vote_type: 'vtuber',
       created_at: new Date()
     });
@@ -1162,7 +1168,13 @@ app.post('/api/vote/artist', requireAuth(), async (req, res) => {
     }
 
     // Check if voted user exists and has Artist badge
-    const votedUser = await User.findById(voted_artist_id);
+    let votedUser = null;
+    try {
+      votedUser = await User.findById(voted_artist_id);
+    } catch (e) {}
+    if (!votedUser) {
+      votedUser = await User.findOne({ clerkId: voted_artist_id });
+    }
     if (!votedUser) {
       return res.status(404).json({ error: 'Artist không tồn tại' });
     }
@@ -1172,8 +1184,8 @@ app.post('/api/vote/artist', requireAuth(), async (req, res) => {
       return res.status(400).json({ error: 'Chỉ có thể vote cho user có badge Artist hợp lệ' });
     }
 
-    // Check if voter is trying to vote for themselves
-    if (voter_id === voted_artist_id) {
+    // Check if voter is trying to vote for themselves (so sánh với cả _id và clerkId)
+    if (voter_id === votedUser._id.toString() || voter_id === votedUser.clerkId) {
       return res.status(400).json({ error: 'Không thể vote cho chính mình' });
     }
 
@@ -1199,7 +1211,7 @@ app.post('/api/vote/artist', requireAuth(), async (req, res) => {
     // Create new vote
     const newVote = await Vote.create({
       voter_id,
-      voted_artist_id,
+      voted_artist_id: votedUser._id.toString(),
       vote_type: 'artist',
       created_at: new Date()
     });
