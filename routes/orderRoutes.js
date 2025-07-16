@@ -36,7 +36,22 @@ router.get('/', requireAuth(), async (req, res) => {
     } else {
       orders = await Order.find().populate('commission');
     }
-    res.json({ orders });
+
+    // Populate buyer and artist info
+    const users = await User.find({});
+    const userMap = {};
+    users.forEach(u => { userMap[u.clerkId] = u; });
+
+    const ordersWithUser = orders.map(order => {
+      const orderObj = order.toObject();
+      // customer_id
+      orderObj.customer_id = userMap[order.buyer] || null;
+      // artist_id (user của commission)
+      orderObj.artist_id = order.commission && userMap[order.commission.user] ? userMap[order.commission.user] : null;
+      return orderObj;
+    });
+
+    res.json({ orders: ordersWithUser });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
