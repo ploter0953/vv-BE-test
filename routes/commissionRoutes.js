@@ -10,17 +10,41 @@ const router = express.Router();
 
 // Tạo commission
 router.post('/', requireAuth(), async (req, res) => {
+  console.log('=== COMMISSION CREATION REQUEST ===');
+  console.log('User ID:', req.auth.userId);
+  console.log('Request body:', JSON.stringify(req.body, null, 2));
+  console.log('Request headers:', JSON.stringify(req.headers, null, 2));
+  
   try {
     const { title, description, price } = req.body;
+    
+    console.log('Extracted data:');
+    console.log('- Title:', title);
+    console.log('- Description:', description);
+    console.log('- Price:', price, 'Type:', typeof price);
+    
     const commission = new Commission({
       title,
       description,
       price,
       user: req.auth.userId,
     });
+    
+    console.log('Commission object before save:', JSON.stringify(commission, null, 2));
+    
     await commission.save();
+    
+    console.log('Commission saved successfully with ID:', commission._id);
+    console.log('Final commission object:', JSON.stringify(commission, null, 2));
+    
     res.status(201).json(commission);
   } catch (err) {
+    console.error('=== COMMISSION CREATION ERROR ===');
+    console.error('Error message:', err.message);
+    console.error('Error stack:', err.stack);
+    console.error('Error name:', err.name);
+    console.error('Error code:', err.code);
+    
     res.status(500).json({ message: err.message });
   }
 });
