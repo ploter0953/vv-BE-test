@@ -10,7 +10,7 @@ const commissionSchema = new mongoose.Schema({
   requirements: { type: [String], default: [] },
   tags: { type: [String], default: [] },
   examples: { type: [String], default: [] },
-  status: { type: String, enum: ['open', 'in_progress', 'completed', 'cancelled'], default: 'open' },
+  status: { type: String, enum: ['open', 'pending', 'in_progress', 'completed', 'cancelled'], default: 'open' },
   user: { type: String, required: true },
 }, { timestamps: true });
 
