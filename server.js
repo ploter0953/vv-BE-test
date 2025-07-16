@@ -561,195 +561,7 @@ app.put('/api/users/:id', requireAuth(), async (req, res) => {
   }
 });
 
-// Create commission
-app.post('/api/commissions', requireAuth(), async (req, res) => {
-  try {
-    const userId = req.auth.userId;
-    console.log('[POST /api/commissions] userId:', userId, '| body:', req.body);
-    const {
-      title, description, type, price, currency, deadline, requirements, examples, tags
-    } = req.body;
-    if (!title || !description || !price) {
-      return res.status(400).json({ error: 'Thiếu thông tin bắt buộc' });
-    }
-    const user = await User.findOne({ clerkId: userId });
-    if (!user) return res.status(404).json({ error: 'User not found' });
-    // Đảm bảo price là số thực, không làm tròn, không parseInt
-    const commission = await Commission.create({
-      title,
-      description,
-      type,
-      price: Number(price),
-      currency: currency || 'VND',
-      deadline,
-      requirements,
-      examples,
-      tags,
-      user: userId
-    });
-    console.log('[POST /api/commissions] Created commission:', commission);
-    res.status(201).json(commission);
-  } catch (error) {
-    console.error('[POST /api/commissions] Error:', error.stack || error);
-    res.status(500).json({ error: 'Lỗi server', details: error.message });
-  }
-});
-
-// Get all commissions
-app.get('/api/commissions', async (req, res) => {
-  try {
-    console.log('Fetching all commissions...');
-    
-    // Use lean() for better performance and to avoid mongoose document issues
-    const commissions = await Commission.find()
-      .sort({ created_at: -1 })
-      .lean()
-      .exec();
-    
-    console.log(`Found ${commissions.length} commissions`);
-    
-    // Ensure all commissions have required fields
-    const validatedCommissions = commissions.map(commission => ({
-      _id: commission._id,
-      title: commission.title || '',
-      description: commission.description || '',
-      type: commission.type || 1,
-      price: commission.price || 0,
-      currency: commission.currency || 'VND',
-      status: commission.status || 'open',
-      user_id: commission.user_id,
-      artist_name: commission.artist_name || '',
-      artist_avatar: commission.artist_avatar || '',
-      deadline: commission.deadline || '',
-      requirements: commission.requirements || [],
-      examples: commission.examples || [],
-      tags: commission.tags || [],
-      created_at: commission.created_at || new Date()
-    }));
-    
-    res.json({ commissions: validatedCommissions });
-  } catch (error) {
-    console.error('Error fetching commissions:', error);
-    res.status(500).json({ error: 'Lỗi server khi tải commissions: ' + error.message });
-  }
-});
-
-// Get commission by ID
-app.get('/api/commissions/:id', async (req, res) => {
-  try {
-    const commission = await Commission.findById(req.params.id);
-    if (!commission) return res.status(404).json({ error: 'Commission không tồn tại' });
-    // Đảm bảo trả về đủ trường, không undefined/null
-    const safeCommission = {
-      _id: commission._id,
-      title: commission.title || '',
-      description: commission.description || '',
-      type: commission.type || 1,
-      price: commission.price || 0,
-      currency: commission.currency || 'VND',
-      status: commission.status || 'open',
-      user_id: commission.user_id || commission.user || '',
-      artist_name: commission.artist_name || '',
-      artist_avatar: commission.artist_avatar || '',
-      deadline: commission.deadline || '',
-      requirements: commission.requirements || [],
-      examples: commission.examples || [],
-      tags: commission.tags || [],
-      created_at: commission.created_at || new Date()
-    };
-    res.json({ commission: safeCommission });
-  } catch (error) {
-    res.status(500).json({ error: 'Lỗi server' });
-  }
-});
-
-// Get commissions by user
-app.get('/api/users/:id/commissions', async (req, res) => {
-  try {
-    const commissions = await Commission.find({ user_id: req.params.id }).sort({ created_at: -1 });
-    res.json({ commissions });
-  } catch (error) {
-    res.status(500).json({ error: 'Lỗi server' });
-  }
-});
-
-// Delete commission (artist can only delete if no pending orders)
-app.delete('/api/commissions/:id', requireAuth(), async (req, res) => {
-  try {
-    const commission = await Commission.findById(req.params.id);
-    if (!commission) return res.status(404).json({ error: 'Commission không tồn tại' });
-    if (commission.user_id.toString() !== req.auth.userId) {
-      return res.status(403).json({ error: 'Không có quyền xóa commission này' });
-    }
-    const activeOrders = await Order.countDocuments({ commission_id: commission._id, status: { $in: ['pending', 'confirmed', 'waiting_customer_confirmation', 'customer_rejected'] } });
-    if (activeOrders > 0) {
-      return res.status(400).json({ error: 'Không thể xóa commission đã có đơn hàng đang hoạt động' });
-    }
-
-    // Delete related images from Cloudinary
-    try {
-      // Delete examples images
-      if (commission.examples && commission.examples.length > 0) {
-        for (const exampleUrl of commission.examples) {
-          const publicId = extractPublicIdFromCloudinaryUrl(exampleUrl);
-          if (publicId) {
-            try {
-              await cloudinary.uploader.destroy(publicId);
-              console.log(`Deleted image from Cloudinary: ${publicId}`);
-            } catch (cloudinaryError) {
-              console.log(`Could not delete image ${publicId} from Cloudinary:`, cloudinaryError.message);
-            }
-          }
-        }
-      }
-    } catch (imageError) {
-      console.log('Error deleting images from Cloudinary:', imageError.message);
-      // Continue with commission deletion even if image deletion fails
-    }
-
-    // Delete related orders
-    await Order.deleteMany({ commission_id: commission._id });
-    
-    // Delete the commission
-    await commission.deleteOne();
-    
-    res.json({ message: 'Xóa commission thành công' });
-  } catch (error) {
-    res.status(500).json({ error: 'Lỗi server' });
-  }
-});
-
-// Create order (customer places commission)
-app.post('/api/commissions/:id/order', requireAuth(), async (req, res) => {
-  try {
-    const commission = await Commission.findById(req.params.id);
-    if (!commission || commission.status !== 'open') {
-      return res.status(404).json({ error: 'Commission không tồn tại hoặc không mở' });
-    }
-    if (commission.user_id.toString() === req.auth.userId) {
-      return res.status(400).json({ error: 'Không thể đặt commission của chính mình' });
-    }
-    const order = await Order.create({
-      commission_id: commission._id,
-      customer_id: req.auth.userId,
-      artist_id: commission.user_id,
-      status: 'pending'
-    });
-    // Commission stays 'open' until artist confirms the order
-    // Only change to 'pending' if this is the first order
-    const pendingOrders = await Order.countDocuments({ 
-      commission_id: commission._id, 
-      status: 'pending' 
-    });
-    if (pendingOrders === 1) {
-      commission.status = 'pending';
-      await commission.save();
-    }
-    res.status(201).json({ message: 'Đặt commission thành công', orderId: order._id });
-  } catch (error) {
-    res.status(500).json({ error: 'Lỗi server' });
-  }
-});
+// Commission routes are now handled by commissionRoutes.js
 
 // Confirm order (artist confirms)
 app.put('/api/orders/:id/confirm', requireAuth(), async (req, res) => {
@@ -1573,6 +1385,12 @@ app.post('/api/users/clerk-sync', async (req, res) => {
 
 // Mount userRoutes (ưu tiên /clerk/:clerkId trước /:id)
 app.use('/api/users', require('./routes/userRoutes'));
+
+// Mount commissionRoutes
+app.use('/api/commissions', require('./routes/commissionRoutes'));
+
+// Mount orderRoutes
+app.use('/api/orders', require('./routes/orderRoutes'));
 
 // Global error handler
 app.use((err, req, res, next) => {

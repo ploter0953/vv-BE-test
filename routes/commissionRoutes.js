@@ -110,7 +110,7 @@ router.get('/', async (req, res) => {
     }));
     
     console.log('Returning', processedCommissions.length, 'commissions');
-    res.json(processedCommissions);
+    res.json({ commissions: processedCommissions });
   } catch (err) {
     console.error('=== COMMISSION FETCH ERROR ===');
     console.error('Error:', err.message);
@@ -162,7 +162,7 @@ router.get('/:id', async (req, res) => {
       artistName: commissionObj.artistName
     });
     
-    res.json(commissionObj);
+    res.json({ commission: commissionObj });
   } catch (err) {
     console.error('=== SINGLE COMMISSION FETCH ERROR ===');
     console.error('Error:', err.message);
