@@ -249,6 +249,7 @@ router.post('/:id/order', requireAuth(), async (req, res) => {
 
     res.status(201).json({ order, commission });
   } catch (err) {
+    console.error('[COMMISSION][ORDER][ERROR][500]', err);
     res.status(500).json({ message: err.message });
   }
 });
