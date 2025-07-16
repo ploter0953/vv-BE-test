@@ -26,8 +26,17 @@ router.post('/', requireAuth(), async (req, res) => {
 // Lấy tất cả order
 router.get('/', requireAuth(), async (req, res) => {
   try {
-    const orders = await Order.find().populate('commission').populate('buyer', 'username email');
-    res.json(orders);
+    let orders;
+    if (req.query.type === 'customer') {
+      orders = await Order.find({ buyer: req.auth.userId }).populate('commission');
+    } else if (req.query.type === 'artist') {
+      const commissions = await Commission.find({ user: req.auth.userId });
+      const commissionIds = commissions.map(c => c._id);
+      orders = await Order.find({ commission: { $in: commissionIds } }).populate('commission');
+    } else {
+      orders = await Order.find().populate('commission');
+    }
+    res.json({ orders });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

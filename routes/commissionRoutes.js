@@ -2,6 +2,7 @@ const express = require('express');
 const Commission = require('../models/Commission');
 const User = require('../models/User');
 const { requireAuth } = require('@clerk/express');
+const Order = require('../models/Order'); // Đảm bảo đã require model Order
 
 const router = express.Router();
 
@@ -215,63 +216,26 @@ router.delete('/:id', requireAuth(), async (req, res) => {
 
 // Đặt commission (tạo order)
 router.post('/:id/order', requireAuth(), async (req, res) => {
-  console.log('=== COMMISSION ORDER REQUEST ===');
-  console.log('User ID:', req.auth.userId);
-  console.log('Commission ID:', req.params.id);
-  console.log('Request body:', JSON.stringify(req.body, null, 2));
-  
   try {
-    // Kiểm tra commission có tồn tại không
     const commission = await Commission.findById(req.params.id);
-    if (!commission) {
-      console.log('Commission not found');
-      return res.status(404).json({ message: 'Commission not found' });
-    }
-    
-    console.log('Commission found:', {
-      id: commission._id,
-      title: commission.title,
-      user: commission.user
+    if (!commission) return res.status(404).json({ message: 'Commission not found' });
+    if (commission.user === req.auth.userId) return res.status(400).json({ message: 'You cannot order your own commission' });
+    if (commission.status !== 'open') return res.status(400).json({ message: 'This commission is not open for orders' });
+
+    // Tạo order mới
+    const order = new Order({
+      commission: commission._id,
+      buyer: req.auth.userId,
+      status: 'pending'
     });
-    
-    // Kiểm tra người dùng không thể đặt commission của chính mình
-    if (commission.user === req.auth.userId) {
-      console.log('User trying to order their own commission');
-      return res.status(400).json({ 
-        message: 'You cannot order your own commission' 
-      });
-    }
-    
-    // Kiểm tra commission có đang mở không
-    if (commission.status !== 'open') {
-      console.log('Commission is not open for orders');
-      return res.status(400).json({ 
-        message: 'This commission is not open for orders' 
-      });
-    }
-    
-    // Tạo order (bạn cần implement Order model và logic này)
-    // const order = new Order({
-    //   commission: commission._id,
-    //   buyer: req.auth.userId,
-    //   seller: commission.user,
-    //   price: commission.price,
-    //   status: 'pending'
-    // });
-    // await order.save();
-    
-    console.log('Order created successfully');
-    res.status(201).json({ 
-      message: 'Order created successfully',
-      commissionId: commission._id,
-      price: commission.price
-    });
-    
+    await order.save();
+
+    // Cập nhật trạng thái commission
+    commission.status = 'pending';
+    await commission.save();
+
+    res.status(201).json({ order, commission });
   } catch (err) {
-    console.error('=== COMMISSION ORDER ERROR ===');
-    console.error('Error message:', err.message);
-    console.error('Error stack:', err.stack);
-    
     res.status(500).json({ message: err.message });
   }
 });
