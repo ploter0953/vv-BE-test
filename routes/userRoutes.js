@@ -1,38 +1,37 @@
 const express = require('express');
 const User = require('../models/User');
+const mongoose = require('mongoose');
 
 const router = express.Router();
 
 // Lấy danh sách user
 router.get('/', async (req, res) => {
   try {
-    // NOTE: Mongoose v7+ still supports Model.find(). If using native MongoDB driver, use collection.find({}).toArray().
-    const users = await User.find().select('-password');
-    res.json(users);
+    const users = await User.find();
+    res.json({ users });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-// Lấy user theo id
+// Lấy user theo clerkId (PHẢI đặt trước route /:id)
+router.get('/clerk/:clerkId', async (req, res) => {
+  try {
+    const user = await User.findOne({ clerkId: req.params.clerkId });
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    res.json({ user });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Lấy user theo id (MongoDB ObjectId)
 router.get('/:id', async (req, res) => {
-  const mongoose = require('mongoose');
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(400).json({ message: 'Invalid user id' });
   }
   try {
-    const user = await User.findById(req.params.id).select('-password');
-    if (!user) return res.status(404).json({ message: 'User not found' });
-    res.json(user);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
-// Lấy user theo clerkId
-router.get('/clerk/:clerkId', async (req, res) => {
-  try {
-    const user = await User.findOne({ clerkId: req.params.clerkId });
+    const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ message: 'User not found' });
     res.json({ user });
   } catch (err) {
@@ -59,13 +58,11 @@ router.post('/clerk-sync', async (req, res) => {
     }
     let user = await User.findOne({ clerkId });
     if (user) {
-      // Đã có user, trả về profile
       return res.json({
         user,
         message: 'User đã tồn tại, trả về profile.'
       });
     }
-    // Nếu chưa có, tạo mới user với các trường mặc định
     user = await User.create({
       clerkId,
       email,
