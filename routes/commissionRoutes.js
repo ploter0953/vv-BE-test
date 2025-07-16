@@ -16,17 +16,29 @@ router.post('/', requireAuth(), async (req, res) => {
   console.log('Request headers:', JSON.stringify(req.headers, null, 2));
   
   try {
-    const { title, description, price } = req.body;
+    const { title, description, type, price, currency, deadline, requirements, tags, examples } = req.body;
     
     console.log('Extracted data:');
     console.log('- Title:', title);
     console.log('- Description:', description);
+    console.log('- Type:', type);
     console.log('- Price:', price, 'Type:', typeof price);
+    console.log('- Currency:', currency);
+    console.log('- Deadline:', deadline);
+    console.log('- Requirements:', requirements);
+    console.log('- Tags:', tags);
+    console.log('- Examples:', examples);
     
     const commission = new Commission({
       title,
       description,
-      price,
+      type,
+      price: Number(price),
+      currency,
+      deadline: deadline ? new Date(deadline) : undefined,
+      requirements,
+      tags,
+      examples,
       user: req.auth.userId,
     });
     
@@ -52,9 +64,56 @@ router.post('/', requireAuth(), async (req, res) => {
 // Lấy tất cả commission
 router.get('/', async (req, res) => {
   try {
-    const commissions = await Commission.find().populate('user', 'username email');
-    res.json(commissions);
+    console.log('=== FETCHING COMMISSIONS ===');
+    
+    // Lấy tất cả commission
+    const commissions = await Commission.find();
+    
+    console.log('Found commissions:', commissions.length);
+    
+    // Xử lý dữ liệu trước khi trả về
+    const processedCommissions = await Promise.all(commissions.map(async (commission) => {
+      const commissionObj = commission.toObject();
+      
+      // Tìm thông tin user từ Clerk ID
+      const user = await User.findOne({ clerkId: commissionObj.user });
+      
+      // Đảm bảo user info được hiển thị đúng
+      if (user) {
+        commissionObj.artistName = user.username || 'Unknown Artist';
+        commissionObj.artistEmail = user.email;
+        commissionObj.artistAvatar = user.avatar;
+        commissionObj.artistRole = user.role;
+      } else {
+        commissionObj.artistName = 'Unknown Artist';
+        commissionObj.artistEmail = '';
+        commissionObj.artistAvatar = '';
+        commissionObj.artistRole = 'user';
+      }
+      
+      // Đảm bảo các trường mới có giá trị mặc định
+      commissionObj.type = commissionObj.type || '';
+      commissionObj.currency = commissionObj.currency || 'VND';
+      commissionObj.deadline = commissionObj.deadline || null;
+      commissionObj.requirements = commissionObj.requirements || [];
+      commissionObj.tags = commissionObj.tags || [];
+      commissionObj.examples = commissionObj.examples || [];
+      
+      console.log('Processed commission:', {
+        id: commissionObj._id,
+        title: commissionObj.title,
+        artistName: commissionObj.artistName,
+        examples: commissionObj.examples.length
+      });
+      
+      return commissionObj;
+    }));
+    
+    console.log('Returning', processedCommissions.length, 'commissions');
+    res.json(processedCommissions);
   } catch (err) {
+    console.error('=== COMMISSION FETCH ERROR ===');
+    console.error('Error:', err.message);
     res.status(500).json({ message: err.message });
   }
 });
@@ -62,10 +121,51 @@ router.get('/', async (req, res) => {
 // Lấy commission theo id
 router.get('/:id', async (req, res) => {
   try {
-    const commission = await Commission.findById(req.params.id).populate('user', 'username email');
-    if (!commission) return res.status(404).json({ message: 'Not found' });
-    res.json(commission);
+    console.log('=== FETCHING SINGLE COMMISSION ===');
+    console.log('Commission ID:', req.params.id);
+    
+    const commission = await Commission.findById(req.params.id);
+    if (!commission) {
+      console.log('Commission not found');
+      return res.status(404).json({ message: 'Not found' });
+    }
+    
+    const commissionObj = commission.toObject();
+    
+    // Tìm thông tin user từ Clerk ID
+    const user = await User.findOne({ clerkId: commissionObj.user });
+    
+    // Đảm bảo user info được hiển thị đúng
+    if (user) {
+      commissionObj.artistName = user.username || 'Unknown Artist';
+      commissionObj.artistEmail = user.email;
+      commissionObj.artistAvatar = user.avatar;
+      commissionObj.artistRole = user.role;
+    } else {
+      commissionObj.artistName = 'Unknown Artist';
+      commissionObj.artistEmail = '';
+      commissionObj.artistAvatar = '';
+      commissionObj.artistRole = 'user';
+    }
+    
+    // Đảm bảo các trường mới có giá trị mặc định
+    commissionObj.type = commissionObj.type || '';
+    commissionObj.currency = commissionObj.currency || 'VND';
+    commissionObj.deadline = commissionObj.deadline || null;
+    commissionObj.requirements = commissionObj.requirements || [];
+    commissionObj.tags = commissionObj.tags || [];
+    commissionObj.examples = commissionObj.examples || [];
+    
+    console.log('Returning commission:', {
+      id: commissionObj._id,
+      title: commissionObj.title,
+      artistName: commissionObj.artistName
+    });
+    
+    res.json(commissionObj);
   } catch (err) {
+    console.error('=== SINGLE COMMISSION FETCH ERROR ===');
+    console.error('Error:', err.message);
     res.status(500).json({ message: err.message });
   }
 });
@@ -105,6 +205,69 @@ router.delete('/:id', requireAuth(), async (req, res) => {
     await commission.deleteOne();
     res.json({ message: 'Commission deleted' });
   } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Đặt commission (tạo order)
+router.post('/:id/order', requireAuth(), async (req, res) => {
+  console.log('=== COMMISSION ORDER REQUEST ===');
+  console.log('User ID:', req.auth.userId);
+  console.log('Commission ID:', req.params.id);
+  console.log('Request body:', JSON.stringify(req.body, null, 2));
+  
+  try {
+    // Kiểm tra commission có tồn tại không
+    const commission = await Commission.findById(req.params.id);
+    if (!commission) {
+      console.log('Commission not found');
+      return res.status(404).json({ message: 'Commission not found' });
+    }
+    
+    console.log('Commission found:', {
+      id: commission._id,
+      title: commission.title,
+      user: commission.user
+    });
+    
+    // Kiểm tra người dùng không thể đặt commission của chính mình
+    if (commission.user === req.auth.userId) {
+      console.log('User trying to order their own commission');
+      return res.status(400).json({ 
+        message: 'You cannot order your own commission' 
+      });
+    }
+    
+    // Kiểm tra commission có đang mở không
+    if (commission.status !== 'open') {
+      console.log('Commission is not open for orders');
+      return res.status(400).json({ 
+        message: 'This commission is not open for orders' 
+      });
+    }
+    
+    // Tạo order (bạn cần implement Order model và logic này)
+    // const order = new Order({
+    //   commission: commission._id,
+    //   buyer: req.auth.userId,
+    //   seller: commission.user,
+    //   price: commission.price,
+    //   status: 'pending'
+    // });
+    // await order.save();
+    
+    console.log('Order created successfully');
+    res.status(201).json({ 
+      message: 'Order created successfully',
+      commissionId: commission._id,
+      price: commission.price
+    });
+    
+  } catch (err) {
+    console.error('=== COMMISSION ORDER ERROR ===');
+    console.error('Error message:', err.message);
+    console.error('Error stack:', err.stack);
+    
     res.status(500).json({ message: err.message });
   }
 });
