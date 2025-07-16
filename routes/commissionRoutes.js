@@ -222,12 +222,16 @@ router.post('/:id/order', requireAuth(), async (req, res) => {
   console.log('[COMMISSION][ORDER] User:', req.auth.userId, 'CommissionId:', req.params.id);
   try {
     const commission = await Commission.findById(req.params.id);
-    if (!commission) return res.status(404).json({ message: 'Commission not found' });
-    // So sánh ClerkId chuẩn hóa
+    if (!commission) {
+      console.log('[COMMISSION][ORDER][ERROR] Commission not found');
+      return res.status(404).json({ message: 'Commission not found' });
+    }
     if (commission.user?.toString() === req.auth.userId?.toString()) {
+      console.log('[COMMISSION][ORDER][ERROR] User is trying to order their own commission:', req.auth.userId);
       return res.status(400).json({ message: 'You cannot order your own commission' });
     }
     if (commission.status !== 'open') {
+      console.log('[COMMISSION][ORDER][ERROR] Commission is not open for orders. Current status:', commission.status);
       return res.status(400).json({ message: 'This commission is not open for orders' });
     }
 
