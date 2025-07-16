@@ -11,6 +11,7 @@ const router = express.Router();
 
 // Tạo commission
 router.post('/', requireAuth(), async (req, res) => {
+  console.log('[COMMISSION][CREATE] User:', req.auth.userId, 'Body:', req.body);
   console.log('=== COMMISSION CREATION REQUEST ===');
   console.log('User ID:', req.auth.userId);
   console.log('Request body:', JSON.stringify(req.body, null, 2));
@@ -177,6 +178,7 @@ router.get('/:id', async (req, res) => {
 
 // Cập nhật commission
 router.put('/:id', requireAuth(), async (req, res) => {
+  console.log('[COMMISSION][UPDATE] User:', req.auth.userId, 'CommissionId:', req.params.id, 'Body:', req.body);
   try {
     const commission = await Commission.findById(req.params.id);
     if (!commission) return res.status(404).json({ message: 'Not found' });
@@ -197,6 +199,7 @@ router.put('/:id', requireAuth(), async (req, res) => {
 
 // Xóa commission
 router.delete('/:id', requireAuth(), async (req, res) => {
+  console.log('[COMMISSION][DELETE] User:', req.auth.userId, 'CommissionId:', req.params.id);
   try {
     const commission = await Commission.findById(req.params.id);
     if (!commission) return res.status(404).json({ message: 'Not found' });
@@ -216,6 +219,7 @@ router.delete('/:id', requireAuth(), async (req, res) => {
 
 // Đặt commission (tạo order)
 router.post('/:id/order', requireAuth(), async (req, res) => {
+  console.log('[COMMISSION][ORDER] User:', req.auth.userId, 'CommissionId:', req.params.id);
   try {
     const commission = await Commission.findById(req.params.id);
     if (!commission) return res.status(404).json({ message: 'Commission not found' });
