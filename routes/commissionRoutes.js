@@ -98,6 +98,8 @@ router.get('/', async (req, res) => {
       commissionObj.requirements = commissionObj.requirements || [];
       commissionObj.tags = commissionObj.tags || [];
       commissionObj.examples = commissionObj.examples || [];
+      // Always provide user_id for FE compatibility
+      commissionObj.user_id = commissionObj.user;
       
       console.log('Processed commission:', {
         id: commissionObj._id,
@@ -155,6 +157,8 @@ router.get('/:id', async (req, res) => {
     commissionObj.requirements = commissionObj.requirements || [];
     commissionObj.tags = commissionObj.tags || [];
     commissionObj.examples = commissionObj.examples || [];
+    // Always provide user_id for FE compatibility
+    commissionObj.user_id = commissionObj.user;
     
     console.log('Returning commission:', {
       id: commissionObj._id,

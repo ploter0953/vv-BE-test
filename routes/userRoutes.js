@@ -25,6 +25,21 @@ router.get('/clerk/:clerkId', async (req, res) => {
   }
 });
 
+// Lấy commissions của user (hỗ trợ cả ObjectId và ClerkId)
+router.get('/:id/commissions', async (req, res) => {
+  const { id } = req.params;
+  let user;
+  const mongoose = require('mongoose');
+  if (id.startsWith('user_')) {
+    user = await User.findOne({ clerkId: id });
+  } else if (mongoose.Types.ObjectId.isValid(id)) {
+    user = await User.findById(id);
+  }
+  if (!user) return res.status(404).json({ message: 'User not found' });
+  const commissions = await require('../models/Commission').find({ user: user.clerkId });
+  res.json({ commissions });
+});
+
 // Lấy user theo id (MongoDB ObjectId)
 router.get('/:id', async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
