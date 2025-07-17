@@ -899,8 +899,8 @@ app.put('/api/orders/:id/artist-reject', requireAuth(), async (req, res) => {
     }
     
     console.log('Current order status:', order.status);
-    // Allow artist to reject in pending, confirmed, or waiting_customer_confirmation
-    if (!["pending", "confirmed", "waiting_customer_confirmation"].includes(order.status)) {
+    // Allow artist to reject in pending, confirmed, in_progress, waiting_customer_confirmation, or customer_rejected
+    if (!["pending", "confirmed", "in_progress", "waiting_customer_confirmation", "customer_rejected"].includes(order.status)) {
       console.log('Order status not allowed for artist rejection - BAD REQUEST');
       return res.status(400).json({ error: 'Không thể từ chối đơn hàng ở trạng thái này' });
     }
