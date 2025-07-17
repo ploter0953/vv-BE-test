@@ -11,12 +11,9 @@ const router = express.Router();
 
 // Tạo commission
 router.post('/', requireAuth(), async (req, res) => {
-  console.log('[COMMISSION][CREATE] User:', req.auth.userId, 'Body:', req.body);
-  console.log('=== COMMISSION CREATION REQUEST ===');
+  console.log('=== CREATE COMMISSION ===');
   console.log('User ID:', req.auth.userId);
-  console.log('Request body:', JSON.stringify(req.body, null, 2));
-  console.log('Request headers:', JSON.stringify(req.headers, null, 2));
-  
+  console.log('Request body:', req.body);
   try {
     const { title, description, type, price, currency, deadline, requirements, tags, examples } = req.body;
     
@@ -52,19 +49,17 @@ router.post('/', requireAuth(), async (req, res) => {
     console.log('Final commission object:', JSON.stringify(commission, null, 2));
     
     res.status(201).json(commission);
+    console.log('=== CREATE COMMISSION SUCCESS ===');
   } catch (err) {
-    console.error('=== COMMISSION CREATION ERROR ===');
-    console.error('Error message:', err.message);
-    console.error('Error stack:', err.stack);
-    console.error('Error name:', err.name);
-    console.error('Error code:', err.code);
-    
+    console.error('=== CREATE COMMISSION ERROR ===');
+    console.error('Error:', err.message);
     res.status(500).json({ message: err.message });
   }
 });
 
 // Lấy tất cả commission
 router.get('/', async (req, res) => {
+  console.log('=== FETCH ALL COMMISSIONS ===');
   try {
     console.log('=== FETCHING COMMISSIONS ===');
     
@@ -115,6 +110,7 @@ router.get('/', async (req, res) => {
     
     console.log('Returning', processedCommissions.length, 'commissions');
     res.json({ commissions: processedCommissions });
+    console.log('=== FETCH ALL COMMISSIONS SUCCESS ===');
   } catch (err) {
     console.error('=== COMMISSION FETCH ERROR ===');
     console.error('Error:', err.message);
@@ -124,9 +120,10 @@ router.get('/', async (req, res) => {
 
 // Lấy commission theo id
 router.get('/:id', async (req, res) => {
+  console.log('=== FETCH SINGLE COMMISSION ===');
+  console.log('Commission ID:', req.params.id);
   try {
     console.log('=== FETCHING SINGLE COMMISSION ===');
-    console.log('Commission ID:', req.params.id);
     
     const commission = await Commission.findById(req.params.id);
     if (!commission) {
@@ -169,6 +166,7 @@ router.get('/:id', async (req, res) => {
     });
     
     res.json({ commission: commissionObj });
+    console.log('=== FETCH SINGLE COMMISSION SUCCESS ===');
   } catch (err) {
     console.error('=== SINGLE COMMISSION FETCH ERROR ===');
     console.error('Error:', err.message);
@@ -178,7 +176,8 @@ router.get('/:id', async (req, res) => {
 
 // Cập nhật commission
 router.put('/:id', requireAuth(), async (req, res) => {
-  console.log('[COMMISSION][UPDATE] User:', req.auth.userId, 'CommissionId:', req.params.id, 'Body:', req.body);
+  console.log('=== UPDATE COMMISSION ===');
+  console.log('User ID:', req.auth.userId, 'CommissionId:', req.params.id, 'Body:', req.body);
   try {
     const commission = await Commission.findById(req.params.id);
     if (!commission) return res.status(404).json({ message: 'Not found' });
@@ -192,14 +191,18 @@ router.put('/:id', requireAuth(), async (req, res) => {
     Object.assign(commission, req.body);
     await commission.save();
     res.json(commission);
+    console.log('=== UPDATE COMMISSION SUCCESS ===');
   } catch (err) {
+    console.error('=== UPDATE COMMISSION ERROR ===');
+    console.error('Error:', err.message);
     res.status(500).json({ message: err.message });
   }
 });
 
 // Xóa commission
 router.delete('/:id', requireAuth(), async (req, res) => {
-  console.log('[COMMISSION][DELETE] User:', req.auth.userId, 'CommissionId:', req.params.id);
+  console.log('=== DELETE COMMISSION ===');
+  console.log('User ID:', req.auth.userId, 'CommissionId:', req.params.id);
   try {
     const commission = await Commission.findById(req.params.id);
     if (!commission) return res.status(404).json({ message: 'Not found' });
@@ -212,44 +215,80 @@ router.delete('/:id', requireAuth(), async (req, res) => {
     }
     await commission.deleteOne();
     res.json({ message: 'Commission deleted' });
+    console.log('=== DELETE COMMISSION SUCCESS ===');
   } catch (err) {
+    console.error('=== DELETE COMMISSION ERROR ===');
+    console.error('Error:', err.message);
     res.status(500).json({ message: err.message });
   }
 });
 
 // Đặt commission (tạo order)
 router.post('/:id/order', requireAuth(), async (req, res) => {
-  console.log('[COMMISSION][ORDER] User:', req.auth.userId, 'CommissionId:', req.params.id);
+  console.log('=== CREATE ORDER FOR COMMISSION ===');
+  console.log('Commission ID:', req.params.id);
+  console.log('User ID:', req.auth.userId);
+  console.log('Request body:', req.body);
+  
   try {
     const commission = await Commission.findById(req.params.id);
+    console.log('Found commission:', commission ? {
+      id: commission._id,
+      title: commission.title,
+      status: commission.status,
+      user: commission.user
+    } : 'NOT FOUND');
     if (!commission) {
-      console.log('[COMMISSION][ORDER][ERROR] Commission not found');
+      console.log('Commission not found');
       return res.status(404).json({ message: 'Commission not found' });
     }
+    
+    console.log('Checking if user is trying to order their own commission...');
+    console.log('Commission user:', commission.user);
+    console.log('Request user ID:', req.auth.userId);
+    console.log('Are they the same?', commission.user?.toString() === req.auth.userId?.toString());
+    
     if (commission.user?.toString() === req.auth.userId?.toString()) {
-      console.log('[COMMISSION][ORDER][ERROR] User is trying to order their own commission:', req.auth.userId);
+      console.log('User is trying to order their own commission - BAD REQUEST');
       return res.status(400).json({ message: 'You cannot order your own commission' });
     }
+    
+    console.log('Commission status:', commission.status);
     if (commission.status !== 'open') {
-      console.log('[COMMISSION][ORDER][ERROR] Commission is not open for orders. Current status:', commission.status);
+      console.log('Commission is not open for orders - BAD REQUEST');
       return res.status(400).json({ message: 'This commission is not open for orders' });
     }
 
     // Tạo order mới
+    console.log('Creating new order...');
     const order = new Order({
       commission: commission._id,
       buyer: req.auth.userId,
       status: 'pending'
     });
     await order.save();
+    console.log('Order created successfully:', {
+      id: order._id,
+      commission: order.commission,
+      buyer: order.buyer,
+      status: order.status
+    });
 
     // Cập nhật trạng thái commission
+    console.log('Updating commission status to pending...');
     commission.status = 'pending';
     await commission.save();
+    console.log('Commission status updated to pending');
 
+    console.log('=== CREATE ORDER SUCCESS ===');
     res.status(201).json({ order, commission });
+    console.log('=== CREATE ORDER FOR COMMISSION SUCCESS ===');
   } catch (err) {
-    console.error('[COMMISSION][ORDER][ERROR][500]', err);
+    console.error('=== CREATE ORDER ERROR ===');
+    console.error('Error message:', err.message);
+    console.error('Error stack:', err.stack);
+    console.error('Error name:', err.name);
+    console.error('Error code:', err.code);
     res.status(500).json({ message: err.message });
   }
 });

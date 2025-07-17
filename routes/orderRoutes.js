@@ -25,22 +25,36 @@ router.post('/', requireAuth(), async (req, res) => {
 
 // Lấy tất cả order
 router.get('/', requireAuth(), async (req, res) => {
+  console.log('=== FETCH ORDERS ===');
+  console.log('User ID:', req.auth.userId);
+  console.log('Query params:', req.query);
+
   try {
     let orders;
     if (req.query.type === 'customer') {
+      console.log('Fetching customer orders...');
       orders = await Order.find({ buyer: req.auth.userId }).populate('commission');
+      console.log('Found customer orders:', orders.length);
     } else if (req.query.type === 'artist') {
+      console.log('Fetching artist orders...');
       const commissions = await Commission.find({ user: req.auth.userId });
+      console.log('User commissions:', commissions.length);
       const commissionIds = commissions.map(c => c._id);
+      console.log('Commission IDs:', commissionIds);
       orders = await Order.find({ commission: { $in: commissionIds } }).populate('commission');
+      console.log('Found artist orders:', orders.length);
     } else {
+      console.log('Fetching all orders...');
       orders = await Order.find().populate('commission');
+      console.log('Found all orders:', orders.length);
     }
 
     // Populate buyer and artist info
+    console.log('Populating user info...');
     const users = await User.find({});
     const userMap = {};
     users.forEach(u => { userMap[u.clerkId] = u; });
+    console.log('User map created with', Object.keys(userMap).length, 'users');
 
     const ordersWithUser = orders.map(order => {
       const orderObj = order.toObject();
@@ -48,22 +62,55 @@ router.get('/', requireAuth(), async (req, res) => {
       orderObj.customer_id = userMap[order.buyer] || null;
       // artist_id (user của commission)
       orderObj.artist_id = order.commission && userMap[order.commission.user] ? userMap[order.commission.user] : null;
+
+      console.log('Processed order:', {
+        id: orderObj._id,
+        status: orderObj.status,
+        buyer: orderObj.buyer,
+        commission_user: order.commission?.user,
+        has_customer_info: !!orderObj.customer_id,
+        has_artist_info: !!orderObj.artist_id
+      });
+
       return orderObj;
     });
 
+    console.log('=== FETCH ORDERS SUCCESS ===');
+    console.log('Returning', ordersWithUser.length, 'orders');
     res.json({ orders: ordersWithUser });
   } catch (err) {
+    console.error('=== FETCH ORDERS ERROR ===');
+    console.error('Error:', err.message);
+    console.error('Stack:', err.stack);
     res.status(500).json({ message: err.message });
   }
 });
 
 // Lấy order theo id
 router.get('/:id', requireAuth(), async (req, res) => {
+  console.log('=== FETCH SINGLE ORDER ===');
+  console.log('Order ID:', req.params.id);
+  console.log('User ID:', req.auth.userId);
+
   try {
     const order = await Order.findById(req.params.id).populate('commission').populate('buyer', 'username email');
-    if (!order) return res.status(404).json({ message: 'Order not found' });
+    console.log('Found order:', order ? {
+      id: order._id,
+      status: order.status,
+      buyer: order.buyer,
+      commission_id: order.commission?._id
+    } : 'NOT FOUND');
+    if (!order) {
+      console.log('Order not found');
+      return res.status(404).json({ message: 'Order not found' });
+    }
+
+    console.log('=== FETCH SINGLE ORDER SUCCESS ===');
     res.json(order);
   } catch (err) {
+    console.error('=== FETCH SINGLE ORDER ERROR ===');
+    console.error('Error:', err.message);
+    console.error('Stack:', err.stack);
     res.status(500).json({ message: err.message });
   }
 });

@@ -565,202 +565,372 @@ app.put('/api/users/:id', requireAuth(), async (req, res) => {
 
 // Confirm order (artist confirms)
 app.put('/api/orders/:id/confirm', requireAuth(), async (req, res) => {
+  console.log('=== ARTIST CONFIRM ORDER ===');
+  console.log('Order ID:', req.params.id);
+  console.log('User ID:', req.auth.userId);
+  console.log('Request body:', req.body);
+  
   try {
     const order = await Order.findById(req.params.id).populate('commission');
-    if (!order) return res.status(404).json({ error: 'Đơn hàng không tồn tại' });
+    console.log('Found order:', order ? {
+      id: order._id,
+      status: order.status,
+      buyer: order.buyer,
+      commission_user: order.commission?.user
+    } : 'NOT FOUND');   
+    if (!order) {
+      console.log('Order not found');
+      return res.status(404).json({ error: 'Đơn hàng không tồn tại' });
+    }
     
     // Check if user is the commission owner (artist)
-    if (order.commission.user !== req.auth.userId) {
+    const isArtist = order.commission.user === req.auth.userId;
+    console.log('Is user the artist?', isArtist);
+    console.log('Order commission user:', order.commission.user);
+    console.log('Request user ID:', req.auth.userId);
+    
+    if (!isArtist) {
+      console.log('User is not the artist - FORBIDDEN');
       return res.status(403).json({ error: 'Không có quyền xác nhận đơn hàng này' });
     }
     
+    console.log('Current order status:', order.status);
     if (order.status !== 'pending') {
+      console.log('Order status is not pending - BAD REQUEST');
       return res.status(400).json({ error: 'Đơn hàng đã được xử lý' });
     }
     
     order.status = 'confirmed';
     order.confirmed_at = new Date();
     await order.save();
+    console.log('Order status updated to confirmed');
     
     // Update commission status
     const commission = order.commission;
     commission.status = 'in_progress';
     await commission.save();
+    console.log('Commission status updated to in_progress');
     
+    console.log('=== ARTIST CONFIRM ORDER SUCCESS ===');
     res.json({ message: 'Xác nhận đơn hàng thành công' });
   } catch (error) {
-    console.error('Confirm order error:', error);
+    console.error('=== ARTIST CONFIRM ORDER ERROR ===');
+    console.error('Error:', error.message);
+    console.error('Stack:', error.stack);
     res.status(500).json({ error: 'Lỗi server' });
   }
 });
 
 // Complete order (artist marks as completed)
 app.put('/api/orders/:id/complete', requireAuth(), async (req, res) => {
+  console.log('=== ARTIST COMPLETE ORDER ===');
+  console.log('Order ID:', req.params.id);
+  console.log('User ID:', req.auth.userId);
+  console.log('Request body:', req.body);
+  
   try {
     const order = await Order.findById(req.params.id).populate('commission');
-    if (!order) return res.status(404).json({ error: 'Đơn hàng không tồn tại' });
+    console.log('Found order:', order ? {
+      id: order._id,
+      status: order.status,
+      buyer: order.buyer,
+      commission_user: order.commission?.user
+    } : 'NOT FOUND');   
+    if (!order) {
+      console.log('Order not found');
+      return res.status(404).json({ error: 'Đơn hàng không tồn tại' });
+    }
     
     // Check if user is the commission owner (artist)
-    if (order.commission.user !== req.auth.userId) {
+    const isArtist = order.commission.user === req.auth.userId;
+    console.log('Is user the artist?', isArtist);
+    console.log('Order commission user:', order.commission.user);
+    console.log('Request user ID:', req.auth.userId);
+    
+    if (!isArtist) {
+      console.log('User is not the artist - FORBIDDEN');
       return res.status(403).json({ error: 'Không có quyền hoàn thành đơn hàng này' });
     }
     
+    console.log('Current order status:', order.status);
     if (order.status !== 'confirmed' && order.status !== 'customer_rejected') {
+      console.log('Order status not allowed for completion - BAD REQUEST');
       return res.status(400).json({ error: 'Đơn hàng chưa được xác nhận hoặc không thể hoàn thành' });
     }
     
     order.status = 'waiting_customer_confirmation';
     order.completed_at = new Date();
     await order.save();
+    console.log('Order status updated to waiting_customer_confirmation');
     
     // Update commission status
     const commission = order.commission;
     commission.status = 'waiting_customer_confirmation';
     await commission.save();
+    console.log('Commission status updated to waiting_customer_confirmation');
     
+    console.log('=== ARTIST COMPLETE ORDER SUCCESS ===');
     res.json({ message: 'Đã đánh dấu hoàn thành. Chờ khách hàng xác nhận để hoàn tất đơn hàng.', requiresCustomerConfirmation: true });
   } catch (error) {
-    console.error('Complete order error:', error);
+    console.error('=== ARTIST COMPLETE ORDER ERROR ===');
+    console.error('Error:', error.message);
+    console.error('Stack:', error.stack);
     res.status(500).json({ error: 'Lỗi server' });
   }
 });
 
 // Customer confirms completion
 app.put('/api/orders/:id/customer-confirm', requireAuth(), async (req, res) => {
+  console.log('=== CUSTOMER CONFIRM ORDER ===');
+  console.log('Order ID:', req.params.id);
+  console.log('User ID:', req.auth.userId);
+  console.log('Request body:', req.body);
+  
   try {
     const order = await Order.findById(req.params.id).populate('commission');
-    if (!order) return res.status(404).json({ error: 'Đơn hàng không tồn tại' });
+    console.log('Found order:', order ? {
+      id: order._id,
+      status: order.status,
+      buyer: order.buyer,
+      commission_user: order.commission?.user
+    } : 'NOT FOUND');   
+    if (!order) {
+      console.log('Order not found');
+      return res.status(404).json({ error: 'Đơn hàng không tồn tại' });
+    }
     
     // Check if user is the buyer (customer)
-    if (order.buyer !== req.auth.userId) {
+    const isCustomer = order.buyer === req.auth.userId;
+    console.log('Is user the customer?', isCustomer);
+    console.log('Order buyer:', order.buyer);
+    console.log('Request user ID:', req.auth.userId);
+    
+    if (!isCustomer) {
+      console.log('User is not the customer - FORBIDDEN');
       return res.status(403).json({ error: 'Không có quyền xác nhận đơn hàng này' });
     }
     
+    console.log('Current order status:', order.status);
     if (order.status !== 'waiting_customer_confirmation') {
+      console.log('Order status not waiting for customer confirmation - BAD REQUEST');
       return res.status(400).json({ error: 'Đơn hàng chưa sẵn sàng để xác nhận' });
     }
     
     order.status = 'completed';
     order.customer_confirmed = true;
     await order.save();
+    console.log('Order status updated to completed');
     
     // Update commission status
     const commission = order.commission;
     commission.status = 'completed';
     await commission.save();
+    console.log('Commission status updated to completed');
     
+    console.log('=== CUSTOMER CONFIRM ORDER SUCCESS ===');
     res.json({ message: 'Xác nhận hoàn thành thành công. Đơn hàng đã hoàn tất!' });
   } catch (error) {
-    console.error('Customer confirm order error:', error);
+    console.error('=== CUSTOMER CONFIRM ORDER ERROR ===');
+    console.error('Error:', error.message);
+    console.error('Stack:', error.stack);
     res.status(500).json({ error: 'Lỗi server' });
   }
 });
 
 // Customer cancels order
 app.put('/api/orders/:id/cancel', requireAuth(), async (req, res) => {
+  console.log('=== CUSTOMER CANCEL ORDER ===');
+  console.log('Order ID:', req.params.id);
+  console.log('User ID:', req.auth.userId);
+  console.log('Request body:', req.body);
+  
   try {
     const order = await Order.findById(req.params.id).populate('commission');
-    if (!order) return res.status(404).json({ error: 'Đơn hàng không tồn tại' });
+    console.log('Found order:', order ? {
+      id: order._id,
+      status: order.status,
+      buyer: order.buyer,
+      commission_user: order.commission?.user
+    } : 'NOT FOUND');   
+    if (!order) {
+      console.log('Order not found');
+      return res.status(404).json({ error: 'Đơn hàng không tồn tại' });
+    }
     
     // Check if user is the buyer (customer)
-    if (order.buyer !== req.auth.userId) {
+    const isCustomer = order.buyer === req.auth.userId;
+    console.log('Is user the customer?', isCustomer);
+    console.log('Order buyer:', order.buyer);
+    console.log('Request user ID:', req.auth.userId);
+    
+    if (!isCustomer) {
+      console.log('User is not the customer - FORBIDDEN');
       return res.status(403).json({ error: 'Không có quyền hủy đơn hàng này' });
     }
     
+    console.log('Current order status:', order.status);
     if (order.status !== 'pending') {
+      console.log('Order status not pending - BAD REQUEST');
       return res.status(400).json({ error: 'Không thể hủy đơn hàng đã được xác nhận hoặc đang thực hiện' });
     }
     
     order.status = 'cancelled';
     await order.save();
+    console.log('Order status updated to cancelled');
     
     // Nếu không còn active order nào thì mở lại commission
     const activeOrders = await Order.countDocuments({ 
       commission: order.commission._id, 
       status: { $in: ['pending', 'confirmed', 'waiting_customer_confirmation', 'customer_rejected'] } 
     });
+    console.log('Active orders count:', activeOrders);
     
     if (activeOrders === 0) {
       const commission = order.commission;
       commission.status = 'open';
       await commission.save();
+      console.log('Commission status updated to open (no active orders)');
     }
     
+    console.log('=== CUSTOMER CANCEL ORDER SUCCESS ===');
     res.json({ message: 'Hủy đơn hàng thành công' });
   } catch (error) {
-    console.error('Cancel order error:', error);
+    console.error('=== CUSTOMER CANCEL ORDER ERROR ===');
+    console.error('Error:', error.message);
+    console.error('Stack:', error.stack);
     res.status(500).json({ error: 'Lỗi server' });
   }
 });
 
 // Customer rejects completion
 app.put('/api/orders/:id/reject', requireAuth(), async (req, res) => {
+  console.log('=== CUSTOMER REJECT ORDER ===');
+  console.log('Order ID:', req.params.id);
+  console.log('User ID:', req.auth.userId);
+  console.log('Request body:', req.body);
+  
   try {
     const { rejection_reason } = req.body;
+    console.log('Rejection reason:', rejection_reason);
+    
     const order = await Order.findById(req.params.id).populate('commission');
-    if (!order) return res.status(404).json({ error: 'Đơn hàng không tồn tại' });
+    console.log('Found order:', order ? {
+      id: order._id,
+      status: order.status,
+      buyer: order.buyer,
+      commission_user: order.commission?.user
+    } : 'NOT FOUND');   
+    if (!order) {
+      console.log('Order not found');
+      return res.status(404).json({ error: 'Đơn hàng không tồn tại' });
+    }
     
     // Check if user is the buyer (customer)
-    if (order.buyer !== req.auth.userId) {
+    const isCustomer = order.buyer === req.auth.userId;
+    console.log('Is user the customer?', isCustomer);
+    console.log('Order buyer:', order.buyer);
+    console.log('Request user ID:', req.auth.userId);
+    
+    if (!isCustomer) {
+      console.log('User is not the customer - FORBIDDEN');
       return res.status(403).json({ error: 'Không có quyền từ chối đơn hàng này' });
     }
     
+    console.log('Current order status:', order.status);
     if (order.status !== 'waiting_customer_confirmation') {
+      console.log('Order status not waiting for customer confirmation - BAD REQUEST');
       return res.status(400).json({ error: 'Đơn hàng chưa sẵn sàng để từ chối' });
     }
     
     order.status = 'customer_rejected';
     order.rejection_reason = rejection_reason || 'Khách hàng từ chối xác nhận hoàn thành';
     await order.save();
+    console.log('Order status updated to customer_rejected');
+    console.log('Rejection reason saved:', order.rejection_reason);
     
     // Update commission status
     const commission = order.commission;
     commission.status = 'in_progress';
     await commission.save();
+    console.log('Commission status updated to in_progress');
     
+    console.log('=== CUSTOMER REJECT ORDER SUCCESS ===');
     res.json({ message: 'Đã từ chối xác nhận hoàn thành. Artist sẽ được thông báo để chỉnh sửa.' });
   } catch (error) {
-    console.error('Reject order error:', error);
+    console.error('=== CUSTOMER REJECT ORDER ERROR ===');
+    console.error('Error:', error.message);
+    console.error('Stack:', error.stack);
     res.status(500).json({ error: 'Lỗi server' });
   }
 });
 
 // Artist rejects order
 app.put('/api/orders/:id/artist-reject', requireAuth(), async (req, res) => {
+  console.log('=== ARTIST REJECT ORDER ===');
+  console.log('Order ID:', req.params.id);
+  console.log('User ID:', req.auth.userId);
+  console.log('Request body:', req.body);
+  
   try {
     const { rejection_reason } = req.body;
+    console.log('Rejection reason:', rejection_reason);
+    
     const order = await Order.findById(req.params.id).populate('commission');
-    if (!order) return res.status(404).json({ error: 'Đơn hàng không tồn tại' });
+    console.log('Found order:', order ? {
+      id: order._id,
+      status: order.status,
+      buyer: order.buyer,
+      commission_user: order.commission?.user
+    } : 'NOT FOUND');   
+    if (!order) {
+      console.log('Order not found');
+      return res.status(404).json({ error: 'Đơn hàng không tồn tại' });
+    }
     
     // Check if user is the commission owner (artist)
-    if (order.commission.user !== req.auth.userId) {
+    const isArtist = order.commission.user === req.auth.userId;
+    console.log('Is user the artist?', isArtist);
+    console.log('Order commission user:', order.commission.user);
+    console.log('Request user ID:', req.auth.userId);
+    
+    if (!isArtist) {
+      console.log('User is not the artist - FORBIDDEN');
       return res.status(403).json({ error: 'Không có quyền từ chối đơn hàng này' });
     }
     
+    console.log('Current order status:', order.status);
     // Allow artist to reject in pending, confirmed, or waiting_customer_confirmation
     if (!["pending", "confirmed", "waiting_customer_confirmation"].includes(order.status)) {
+      console.log('Order status not allowed for artist rejection - BAD REQUEST');
       return res.status(400).json({ error: 'Không thể từ chối đơn hàng ở trạng thái này' });
     }
     
     order.status = 'artist_rejected';
     order.rejection_reason = rejection_reason || 'Artist từ chối thực hiện đơn hàng';
     await order.save();
+    console.log('Order status updated to artist_rejected');
+    console.log('Rejection reason saved:', order.rejection_reason);
     
     // Check if commission should be reopened
     const activeOrders = await Order.countDocuments({ 
       commission: order.commission._id, 
       status: { $in: ['pending', 'confirmed', 'waiting_customer_confirmation', 'customer_rejected'] } 
     });
+    console.log('Active orders count:', activeOrders);
     
     if (activeOrders === 0) {
       const commission = order.commission;
       commission.status = 'open';
       await commission.save();
+      console.log('Commission status updated to open (no active orders)');
     }
     
+    console.log('=== ARTIST REJECT ORDER SUCCESS ===');
     res.json({ message: 'Đã từ chối đơn hàng. Commission sẽ được mở lại nếu không còn đơn hàng nào.' });
   } catch (error) {
-    console.error('Artist reject order error:', error);
+    console.error('=== ARTIST REJECT ORDER ERROR ===');
+    console.error('Error:', error.message);
+    console.error('Stack:', error.stack);
     res.status(500).json({ error: 'Lỗi server' });
   }
 });
