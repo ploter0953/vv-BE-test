@@ -180,10 +180,10 @@ router.post('/:id/customer-reject', requireAuth(), async (req, res) => {
     if (order.buyer !== req.auth.userId) {
       return res.status(403).json({ message: 'Forbidden' });
     }
-    order.status = 'in_progress';
+    order.status = 'customer_rejected';
     order.rejection_reason = req.body.reason || '';
     await order.save();
-    res.json({ message: 'Order set to in_progress after customer rejection', order });
+    res.json({ message: 'Order set to customer_rejected after customer rejection', order });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -229,9 +229,9 @@ router.post('/:id/complete', requireAuth(), async (req, res) => {
     if (!order.commission || order.commission.user !== req.auth.userId) {
       return res.status(403).json({ message: 'Forbidden' });
     }
-    // Cho phép hoàn thành khi order ở confirmed hoặc in_progress
-    if (!['confirmed', 'in_progress'].includes(order.status)) {
-      return res.status(400).json({ message: 'Order must be in confirmed or in_progress to complete' });
+    // Cho phép hoàn thành khi order ở confirmed, in_progress, hoặc customer_rejected
+    if (!['confirmed', 'in_progress', 'customer_rejected'].includes(order.status)) {
+      return res.status(400).json({ message: 'Order must be in confirmed, in_progress, or customer_rejected to complete' });
     }
     order.status = 'waiting_customer_confirmation';
     order.completed_at = new Date();

@@ -653,7 +653,7 @@ app.put('/api/orders/:id/complete', requireAuth(), async (req, res) => {
     }
     
     console.log('Current order status:', order.status);
-    if (order.status !== 'confirmed' && order.status !== 'customer_rejected') {
+    if (!['confirmed', 'customer_rejected', 'in_progress'].includes(order.status)) {
       console.log('Order status not allowed for completion - BAD REQUEST');
       return res.status(400).json({ error: 'Đơn hàng chưa được xác nhận hoặc không thể hoàn thành' });
     }
