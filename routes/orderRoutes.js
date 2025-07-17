@@ -220,6 +220,28 @@ router.post('/:id/artist-reject', requireAuth(), async (req, res) => {
   }
 });
 
+// Artist complete order: hoàn thành đơn hàng, chuyển về waiting_customer_confirmation
+router.post('/:id/complete', requireAuth(), async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.id).populate('commission');
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+    // Chỉ artist (chủ commission) mới được hoàn thành
+    if (!order.commission || order.commission.user !== req.auth.userId) {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
+    // Cho phép hoàn thành khi order ở confirmed hoặc in_progress
+    if (!['confirmed', 'in_progress'].includes(order.status)) {
+      return res.status(400).json({ message: 'Order must be in confirmed or in_progress to complete' });
+    }
+    order.status = 'waiting_customer_confirmation';
+    order.completed_at = new Date();
+    await order.save();
+    res.json({ message: 'Order completed, waiting for customer confirmation', order });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // Debug endpoint to check all orders
 router.get('/debug/all', requireAuth(), async (req, res) => {
   console.log('=== DEBUG ALL ORDERS ===');
