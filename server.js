@@ -1146,7 +1146,7 @@ app.post('/api/vote/vtuber', requireAuth(), async (req, res) => {
     // Create new vote
     const newVote = await Vote.create({
       voter_id,
-      voted_vtuber_id: votedUser._id.toString(),
+      voted_vtuber_id: votedUser._id,
       vote_type: 'vtuber',
       created_at: new Date()
     });
@@ -1216,7 +1216,7 @@ app.post('/api/vote/artist', requireAuth(), async (req, res) => {
     // Create new vote
     const newVote = await Vote.create({
       voter_id,
-      voted_artist_id: votedUser._id.toString(),
+      voted_artist_id: votedUser._id,
       vote_type: 'artist',
       created_at: new Date()
     });
@@ -1237,6 +1237,12 @@ app.get('/api/spotlight/vtubers', async (req, res) => {
   try {
     // Get top 5 VTubers by vote count
     const topVTubers = await Vote.aggregate([
+      {
+        $match: {
+          vote_type: 'vtuber',
+          voted_vtuber_id: { $exists: true, $ne: null }
+        }
+      },
       {
         $group: {
           _id: '$voted_vtuber_id',
@@ -1267,11 +1273,13 @@ app.get('/api/spotlight/vtubers', async (req, res) => {
       },
       {
         $project: {
-          _id: 1,
+          _id: '$vtuber._id',
           voteCount: 1,
           username: '$vtuber.username',
           avatar: '$vtuber.avatar',
-          bio: '$vtuber.bio'
+          bio: '$vtuber.bio',
+          vtuber_description: '$vtuber.vtuber_description',
+          badges: '$vtuber.badges'
         }
       }
     ]);
@@ -1291,6 +1299,12 @@ app.get('/api/spotlight/artists', async (req, res) => {
   try {
     // Get top 5 Artists by vote count
     const topArtists = await Vote.aggregate([
+      {
+        $match: {
+          vote_type: 'artist',
+          voted_artist_id: { $exists: true, $ne: null }
+        }
+      },
       {
         $group: {
           _id: '$voted_artist_id',
@@ -1321,11 +1335,13 @@ app.get('/api/spotlight/artists', async (req, res) => {
       },
       {
         $project: {
-          _id: 1,
+          _id: '$artist._id',
           voteCount: 1,
           username: '$artist.username',
           avatar: '$artist.avatar',
-          bio: '$artist.bio'
+          bio: '$artist.bio',
+          artist_description: '$artist.artist_description',
+          badges: '$artist.badges'
         }
       }
     ]);
