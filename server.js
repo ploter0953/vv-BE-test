@@ -975,30 +975,6 @@ app.put('/api/orders/auto-cancel-pending', async (req, res) => {
   }
 });
 
-// Get orders for user (as artist or customer)
-app.get('/api/orders', requireAuth(), async (req, res) => {
-  try {
-    const userId = req.auth.userId;
-    const { role } = req.query; // 'artist' or 'customer'
-    let filter = {};
-    if (role === 'artist') {
-      filter.artist_id = userId;
-    } else {
-      filter.customer_id = userId;
-    }
-    console.log('[GET /api/orders] userId:', userId, '| role:', role, '| filter:', filter);
-    const orders = await Order.find(filter)
-      .populate('commission_id')
-      .populate('customer_id', 'username avatar profile_email')
-      .populate('artist_id', 'username avatar profile_email');
-    console.log('[GET /api/orders] Found orders:', orders.length);
-    res.json({ orders });
-  } catch (error) {
-    console.error('[GET /api/orders] Error:', error.stack || error);
-    res.status(500).json({ error: 'Lỗi server', details: error.message });
-  }
-});
-
 // Upload image to Cloudinary
 app.post('/api/upload/image', requireAuth(), upload.single('image'), async (req, res) => {
   try {
