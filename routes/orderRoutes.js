@@ -206,12 +206,15 @@ router.post('/:id/artist-reject', requireAuth(), async (req, res) => {
     order.rejection_reason = req.body.reason || '';
     await order.save();
     // Cập nhật commission về open
-    const commission = await Commission.findById(order.commission._id);
-    if (commission) {
-      commission.status = 'open';
-      await commission.save();
+    let commission = null;
+    if (order.commission && order.commission._id) {
+      commission = await Commission.findById(order.commission._id);
+      if (commission) {
+        commission.status = 'open';
+        await commission.save();
+      }
     }
-    res.json({ message: 'Order artist rejected and commission reopened', order });
+    res.json({ message: 'Order artist rejected and commission reopened', order, commission });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
