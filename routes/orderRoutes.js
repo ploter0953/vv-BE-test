@@ -37,12 +37,33 @@ router.get('/', requireAuth(), async (req, res) => {
       console.log('Found customer orders:', orders.length);
     } else if (req.query.type === 'artist') {
       console.log('Fetching artist orders...');
+      console.log('Looking for commissions with user:', req.auth.userId);
+
       const commissions = await Commission.find({ user: req.auth.userId });
-      console.log('User commissions:', commissions.length);
+      console.log('User commissions found:', commissions.length);
+      console.log('Commission details:', commissions.map(c => ({
+        id: c._id,
+        title: c.title,
+        user: c.user,
+        status: c.status
+      })));
+
       const commissionIds = commissions.map(c => c._id);
-      console.log('Commission IDs:', commissionIds);
-      orders = await Order.find({ commission: { $in: commissionIds } }).populate('commission');
-      console.log('Found artist orders:', orders.length);
+      console.log('Commission IDs to search for orders:', commissionIds);
+
+      if (commissionIds.length > 0) {
+        orders = await Order.find({ commission: { $in: commissionIds } }).populate('commission');
+        console.log('Orders found for these commissions:', orders.length);
+        console.log('Order details:', orders.map(o => ({
+          id: o._id,
+          commission_id: o.commission?._id,
+          buyer: o.buyer,
+          status: o.status
+        })));
+      } else {
+        console.log('No commissions found for user, so no orders');
+        orders = [];
+      }
     } else {
       console.log('Fetching all orders...');
       orders = await Order.find().populate('commission');
@@ -147,6 +168,70 @@ router.delete('/:id', requireAuth(), async (req, res) => {
     res.json({ message: 'Order deleted' });
   } catch (err) {
     res.status(500).json({ message: err.message });
+  }
+});
+
+// Debug endpoint to check all orders
+router.get('/debug/all', requireAuth(), async (req, res) => {
+  console.log('=== DEBUG ALL ORDERS ===');
+  try {
+    const allOrders = await Order.find().populate('commission');
+    console.log('Total orders in database:', allOrders.length);
+    console.log('Order details:', allOrders.map(o => ({
+      id: o._id,
+      commission_id: o.commission?._id,
+      commission_title: o.commission?.title,
+      commission_user: o.commission?.user,
+      buyer: o.buyer,
+      status: o.status,
+      created_at: o.created_at
+    })));
+    
+    res.json({
+      totalOrders: allOrders.length,
+      orders: allOrders.map(o => ({
+        id: o._id,
+        commission_id: o.commission?._id,
+        commission_title: o.commission?.title,
+        commission_user: o.commission?.user,
+        buyer: o.buyer,
+        status: o.status,
+        created_at: o.created_at
+      }))
+    });
+  } catch (err) {
+    console.error('Debug error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Debug endpoint to check all commissions
+router.get('/debug/commissions', requireAuth(), async (req, res) => {
+  console.log('=== DEBUG ALL COMMISSIONS ===');
+  try {
+    const allCommissions = await Commission.find();
+    console.log('Total commissions in database:', allCommissions.length);
+    console.log('Commission details:', allCommissions.map(c => ({
+      id: c._id,
+      title: c.title,
+      user: c.user,
+      status: c.status,
+      created_at: c.created_at
+    })));
+    
+    res.json({
+      totalCommissions: allCommissions.length,
+      commissions: allCommissions.map(c => ({
+        id: c._id,
+        title: c.title,
+        user: c.user,
+        status: c.status,
+        created_at: c.created_at
+      }))
+    });
+  } catch (err) {
+    console.error('Debug error:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 
