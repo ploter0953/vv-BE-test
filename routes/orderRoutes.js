@@ -171,6 +171,51 @@ router.delete('/:id', requireAuth(), async (req, res) => {
   }
 });
 
+// Customer reject: từ chối xác nhận hoàn thành, chuyển order về in_progress
+router.post('/:id/customer-reject', requireAuth(), async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.id).populate('commission');
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+    // Chỉ buyer mới được từ chối
+    if (order.buyer !== req.auth.userId) {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
+    order.status = 'in_progress';
+    order.rejection_reason = req.body.reason || '';
+    await order.save();
+    res.json({ message: 'Order set to in_progress after customer rejection', order });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Artist reject: từ chối hoàn thành khi đang in_progress, order về artist_rejected, commission về open
+router.post('/:id/artist-reject', requireAuth(), async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.id).populate('commission');
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+    // Chỉ artist (chủ commission) mới được từ chối
+    if (!order.commission || order.commission.user !== req.auth.userId) {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
+    if (order.status !== 'in_progress') {
+      return res.status(400).json({ message: 'Order must be in in_progress to artist reject' });
+    }
+    order.status = 'artist_rejected';
+    order.rejection_reason = req.body.reason || '';
+    await order.save();
+    // Cập nhật commission về open
+    const commission = await Commission.findById(order.commission._id);
+    if (commission) {
+      commission.status = 'open';
+      await commission.save();
+    }
+    res.json({ message: 'Order artist rejected and commission reopened', order });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // Debug endpoint to check all orders
 router.get('/debug/all', requireAuth(), async (req, res) => {
   console.log('=== DEBUG ALL ORDERS ===');
