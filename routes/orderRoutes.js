@@ -189,7 +189,7 @@ router.post('/:id/customer-reject', requireAuth(), async (req, res) => {
   }
 });
 
-// Artist reject: từ chối hoàn thành khi đang in_progress, order về artist_rejected, commission về open
+// Artist reject: từ chối đơn hàng khi ở pending, confirmed, hoặc in_progress
 router.post('/:id/artist-reject', requireAuth(), async (req, res) => {
   try {
     const order = await Order.findById(req.params.id).populate('commission');
@@ -198,8 +198,9 @@ router.post('/:id/artist-reject', requireAuth(), async (req, res) => {
     if (!order.commission || order.commission.user !== req.auth.userId) {
       return res.status(403).json({ message: 'Forbidden' });
     }
-    if (order.status !== 'in_progress') {
-      return res.status(400).json({ message: 'Order must be in in_progress to artist reject' });
+    // Cho phép từ chối khi order ở pending, confirmed, hoặc in_progress
+    if (!['pending', 'confirmed', 'in_progress'].includes(order.status)) {
+      return res.status(400).json({ message: 'Order must be in pending, confirmed, or in_progress to artist reject' });
     }
     order.status = 'artist_rejected';
     order.rejection_reason = req.body.reason || '';
