@@ -5,6 +5,7 @@ const userSchema = new mongoose.Schema({
   email: String, // Sync từ Clerk
   username: String, // Sync từ Clerk
   avatar: String, // Sync từ Clerk
+  banner: String, // Banner image URL
   role: { type: String, enum: ['user', 'admin', 'artist'], default: 'user' },
   bio: String,
   description: String,

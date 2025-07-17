@@ -40,6 +40,22 @@ const upload = multer({
   }
 });
 
+// Multer configuration for media uploads (images + videos, up to 40MB)
+const mediaUpload = multer({ 
+  storage: storage,
+  limits: {
+    fileSize: 40 * 1024 * 1024, // 40MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    // Accept images and videos
+    if (file.mimetype.startsWith('image/') || file.mimetype.startsWith('video/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Chỉ chấp nhận file hình ảnh hoặc video'), false);
+    }
+  }
+});
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
@@ -1047,6 +1063,56 @@ app.post('/api/upload/images', requireAuth(), upload.array('images', 10), async 
   }
 });
 
+// Upload media (image/video) to Cloudinary - up to 40MB
+app.post('/api/upload/media', requireAuth(), mediaUpload.single('media'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Không có file được upload' });
+    }
+
+    // Convert buffer to base64
+    const b64 = Buffer.from(req.file.buffer).toString('base64');
+    const dataURI = `data:${req.file.mimetype};base64,${b64}`;
+
+    // Determine resource type
+    const resourceType = req.file.mimetype.startsWith('video/') ? 'video' : 'image';
+    
+    // Upload to Cloudinary with appropriate settings
+    const uploadOptions = {
+      folder: 'vtuberverse',
+      resource_type: resourceType,
+    };
+
+    // Add transformations based on file type
+    if (resourceType === 'image') {
+      uploadOptions.transformation = [
+        { quality: 'auto', fetch_format: 'auto' }
+      ];
+    } else if (resourceType === 'video') {
+      uploadOptions.transformation = [
+        { quality: 'auto' }
+      ];
+    }
+
+    const result = await cloudinary.uploader.upload(dataURI, uploadOptions);
+
+    res.json({
+      success: true,
+      url: result.secure_url,
+      public_id: result.public_id,
+      resource_type: resourceType,
+      width: result.width,
+      height: result.height,
+      duration: result.duration, // For videos
+      format: result.format,
+      bytes: result.bytes
+    });
+  } catch (error) {
+    console.error('Media upload error:', error);
+    res.status(500).json({ error: 'Lỗi khi upload media: ' + error.message });
+  }
+});
+
 // Delete image from Cloudinary
 app.delete('/api/upload/image/:public_id', requireAuth(), async (req, res) => {
   try {
@@ -1277,6 +1343,7 @@ app.get('/api/spotlight/vtubers', async (req, res) => {
           voteCount: 1,
           username: '$vtuber.username',
           avatar: '$vtuber.avatar',
+          banner: '$vtuber.banner',
           bio: '$vtuber.bio',
           vtuber_description: '$vtuber.vtuber_description',
           badges: '$vtuber.badges'
@@ -1339,6 +1406,7 @@ app.get('/api/spotlight/artists', async (req, res) => {
           voteCount: 1,
           username: '$artist.username',
           avatar: '$artist.avatar',
+          banner: '$artist.banner',
           bio: '$artist.bio',
           artist_description: '$artist.artist_description',
           badges: '$artist.badges'
