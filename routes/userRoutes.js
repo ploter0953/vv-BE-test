@@ -9,14 +9,17 @@ router.get('/', async (req, res) => {
   try {
     const { username } = req.query;
     if (username) {
+      console.log('[DEBUG] Tìm kiếm user:', username);
       // Tìm user theo username, không phân biệt hoa thường, partial match
       const users = await User.find({ username: { $regex: username, $options: 'i' } });
+      console.log('[DEBUG] Số kết quả:', users.length);
       return res.json({ users });
     }
     // Nếu không có query, trả về tất cả user (hoặc có thể trả về rỗng)
     const users = await User.find();
     res.json({ users });
   } catch (err) {
+    console.error('[DEBUG] Lỗi tìm kiếm user:', err);
     res.status(500).json({ message: err.message });
   }
 });
