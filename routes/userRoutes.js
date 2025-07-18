@@ -4,9 +4,16 @@ const mongoose = require('mongoose');
 
 const router = express.Router();
 
-// Lấy danh sách user
+// Tìm user theo username (GET /api/users?username=...)
 router.get('/', async (req, res) => {
   try {
+    const { username } = req.query;
+    if (username) {
+      // Tìm user theo username, không phân biệt hoa thường, partial match
+      const users = await User.find({ username: { $regex: username, $options: 'i' } });
+      return res.json({ users });
+    }
+    // Nếu không có query, trả về tất cả user (hoặc có thể trả về rỗng)
     const users = await User.find();
     res.json({ users });
   } catch (err) {
