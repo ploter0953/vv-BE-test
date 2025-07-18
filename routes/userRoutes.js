@@ -77,6 +77,7 @@ router.delete('/:id', async (req, res) => {
 
 // Clerk sync endpoint
 router.post('/clerk-sync', async (req, res) => {
+  console.log('=== ĐÃ VÀO ENDPOINT /clerk-sync TRONG ROUTER ===');
   try {
     const { clerkId, email, username, avatar } = req.body;
     if (!clerkId || !email) {

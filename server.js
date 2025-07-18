@@ -130,6 +130,14 @@ app.use((req, res, next) => {
   next();
 });
 
+// Middleware to log clerk-sync requests
+app.use((req, res, next) => {
+  if (req.path.includes('clerk-sync')) {
+    console.log('=== ĐÃ VÀO MIDDLEWARE TOÀN CỤC:', req.method, req.path);
+  }
+  next();
+});
+
 // CORS configuration
 const corsOptions = {
   origin: function (origin, callback) {
