@@ -1002,9 +1002,15 @@ app.post('/api/upload/image', requireAuth(), upload.single('image'), async (req,
     const b64 = Buffer.from(req.file.buffer).toString('base64');
     const dataURI = `data:${req.file.mimetype};base64,${b64}`;
 
+    // Xác định folder theo query param type
+    let folder = 'vtuberverse/commission';
+    if (req.query.type === 'avatar' || req.query.type === 'banner') {
+      folder = 'vtuberverse/users';
+    }
+
     // Upload to Cloudinary
     const result = await cloudinary.uploader.upload(dataURI, {
-      folder: 'vtuberverse',
+      folder,
       resource_type: 'auto',
       transformation: [
         { quality: 'auto', fetch_format: 'auto' }
@@ -1031,12 +1037,18 @@ app.post('/api/upload/images', requireAuth(), upload.array('images', 10), async 
       return res.status(400).json({ error: 'Không có file được upload' });
     }
 
+    // Xác định folder theo query param type
+    let folder = 'vtuberverse/commission';
+    if (req.query.type === 'avatar' || req.query.type === 'banner') {
+      folder = 'vtuberverse/users';
+    }
+
     const uploadPromises = req.files.map(async (file) => {
       const b64 = Buffer.from(file.buffer).toString('base64');
       const dataURI = `data:${file.mimetype};base64,${b64}`;
 
       const result = await cloudinary.uploader.upload(dataURI, {
-        folder: 'vtuberverse',
+        folder,
         resource_type: 'auto',
         transformation: [
           { quality: 'auto', fetch_format: 'auto' }
@@ -1076,10 +1088,15 @@ app.post('/api/upload/media', requireAuth(), mediaUpload.single('media'), async 
 
     // Determine resource type
     const resourceType = req.file.mimetype.startsWith('video/') ? 'video' : 'image';
-    
+    // Xác định folder theo query param type
+    let folder = 'vtuberverse/commission';
+    if (req.query.type === 'avatar' || req.query.type === 'banner') {
+      folder = 'vtuberverse/users';
+    }
+
     // Upload to Cloudinary with appropriate settings
     const uploadOptions = {
-      folder: 'vtuberverse',
+      folder,
       resource_type: resourceType,
     };
 

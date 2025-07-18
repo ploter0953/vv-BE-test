@@ -83,6 +83,7 @@ router.post('/clerk-sync', async (req, res) => {
       email,
       username: username || '',
       avatar: avatar || '',
+      banner: '',
       badges: ['member'],
       bio: '',
       description: '',
