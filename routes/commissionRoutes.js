@@ -3,8 +3,59 @@ const Commission = require('../models/Commission');
 const User = require('../models/User');
 const { requireAuth } = require('@clerk/express');
 const Order = require('../models/Order'); // Đảm bảo đã require model Order
+const cloudinary = require('cloudinary').v2;
 
 const router = express.Router();
+
+// Helper function to extract public_id from Cloudinary URL
+function extractPublicIdFromCloudinaryUrl(url) {
+  if (!url || !url.includes('cloudinary.com')) {
+    return null;
+  }
+  
+  try {
+    // Cloudinary URL format: https://res.cloudinary.com/cloud_name/image/upload/v1234567890/folder/filename.jpg
+    const urlParts = url.split('/');
+    const uploadIndex = urlParts.findIndex(part => part === 'upload');
+    if (uploadIndex === -1) return null;
+    
+    // Get everything after 'upload/v1234567890/' or 'upload/'
+    const pathAfterUpload = urlParts.slice(uploadIndex + 1);
+    if (pathAfterUpload.length === 0) return null;
+    
+    // Skip version if present (starts with 'v' followed by numbers)
+    const startIndex = pathAfterUpload[0].match(/^v\d+$/) ? 1 : 0;
+    const publicIdParts = pathAfterUpload.slice(startIndex);
+    
+    // Join and remove file extension
+    const publicId = publicIdParts.join('/').replace(/\.[^/.]+$/, '');
+    return publicId;
+  } catch (error) {
+    console.error('Error extracting public_id:', error);
+    return null;
+  }
+}
+
+// Helper function to delete files from Cloudinary
+async function deleteCloudinaryFiles(urls) {
+  const deletePromises = urls.map(async (url) => {
+    try {
+      const publicId = extractPublicIdFromCloudinaryUrl(url);
+      if (publicId) {
+        console.log('Deleting from Cloudinary:', publicId);
+        const result = await cloudinary.uploader.destroy(publicId);
+        console.log('Cloudinary delete result:', result);
+        return { url, publicId, result };
+      }
+      return { url, publicId: null, result: 'no_public_id' };
+    } catch (error) {
+      console.error('Error deleting from Cloudinary:', error);
+      return { url, error: error.message };
+    }
+  });
+  
+  return Promise.all(deletePromises);
+}
 
 // Use requireAuth() for all protected routes:
 // router.post('/', requireAuth(), ...)
@@ -15,7 +66,22 @@ router.post('/', requireAuth(), async (req, res) => {
   console.log('User ID:', req.auth.userId);
   console.log('Request body:', req.body);
   try {
-    const { title, description, type, price, currency, deadline, requirements, tags, examples } = req.body;
+    // Kiểm tra user có Facebook link không
+    const user = await User.findOne({ clerkId: req.auth.userId });
+    if (!user) {
+      console.log('User not found');
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    if (!user.facebook || user.facebook.trim() === '') {
+      console.log('User does not have Facebook link');
+      return res.status(400).json({ 
+        message: 'Bạn vui lòng cập nhật Facebook trong phần hồ sơ để tạo commission',
+        error: 'FACEBOOK_REQUIRED'
+      });
+    }
+    
+    const { title, description, type, price, currency, deadline, requirements, tags, examples, media } = req.body;
     
     console.log('Extracted data:');
     console.log('- Title:', title);
@@ -27,6 +93,7 @@ router.post('/', requireAuth(), async (req, res) => {
     console.log('- Requirements:', requirements);
     console.log('- Tags:', tags);
     console.log('- Examples:', examples);
+    console.log('- Media:', media);
     
     const commission = new Commission({
       title,
@@ -38,6 +105,7 @@ router.post('/', requireAuth(), async (req, res) => {
       requirements,
       tags,
       examples,
+      media: media || [],
       user: req.auth.userId,
     });
     
@@ -231,6 +299,21 @@ router.post('/:id/order', requireAuth(), async (req, res) => {
   console.log('Request body:', req.body);
   
   try {
+    // Kiểm tra user có Facebook link không
+    const user = await User.findOne({ clerkId: req.auth.userId });
+    if (!user) {
+      console.log('User not found');
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    if (!user.facebook || user.facebook.trim() === '') {
+      console.log('User does not have Facebook link');
+      return res.status(400).json({ 
+        message: 'Bạn vui lòng cập nhật Facebook trong phần hồ sơ để đặt commission',
+        error: 'FACEBOOK_REQUIRED'
+      });
+    }
+    
     const commission = await Commission.findById(req.params.id);
     console.log('Found commission:', commission ? {
       id: commission._id,
@@ -290,6 +373,80 @@ router.post('/:id/order', requireAuth(), async (req, res) => {
     console.error('Error name:', err.name);
     console.error('Error code:', err.code);
     res.status(500).json({ message: err.message });
+  }
+});
+
+// Xóa commission (chỉ cho phép owner và khi status là 'open' hoặc 'pending')
+router.delete('/:id', requireAuth(), async (req, res) => {
+  console.log('=== DELETE COMMISSION ===');
+  console.log('User ID:', req.auth.userId);
+  console.log('Commission ID:', req.params.id);
+  
+  try {
+    const commission = await Commission.findById(req.params.id);
+    
+    if (!commission) {
+      return res.status(404).json({ error: 'Commission không tồn tại' });
+    }
+    
+    // Kiểm tra quyền sở hữu
+    if (commission.user !== req.auth.userId) {
+      return res.status(403).json({ error: 'Bạn không có quyền xóa commission này' });
+    }
+    
+    // Kiểm tra trạng thái - chỉ cho phép xóa khi 'open' hoặc 'pending'
+    if (commission.status !== 'open' && commission.status !== 'pending') {
+      return res.status(400).json({ 
+        error: 'Chỉ có thể xóa commission khi đang mở hoặc đang chờ xác nhận' 
+      });
+    }
+    
+    console.log('Commission can be deleted, status:', commission.status);
+    
+    // Thu thập tất cả URLs cần xóa từ Cloudinary
+    const urlsToDelete = [];
+    
+    // Thêm examples URLs
+    if (commission.examples && commission.examples.length > 0) {
+      urlsToDelete.push(...commission.examples);
+    }
+    
+    // Thêm media URLs
+    if (commission.media && commission.media.length > 0) {
+      commission.media.forEach(media => {
+        if (media.url) {
+          urlsToDelete.push(media.url);
+        }
+      });
+    }
+    
+    console.log('URLs to delete from Cloudinary:', urlsToDelete);
+    
+    // Xóa files từ Cloudinary
+    let cloudinaryDeleteResults = [];
+    if (urlsToDelete.length > 0) {
+      cloudinaryDeleteResults = await deleteCloudinaryFiles(urlsToDelete);
+      console.log('Cloudinary delete results:', cloudinaryDeleteResults);
+    }
+    
+    // Xóa tất cả orders liên quan đến commission này
+    const deletedOrders = await Order.deleteMany({ commission_id: req.params.id });
+    console.log('Deleted orders:', deletedOrders.deletedCount);
+    
+    // Xóa commission khỏi database
+    await Commission.findByIdAndDelete(req.params.id);
+    console.log('Commission deleted successfully');
+    
+    res.json({ 
+      success: true, 
+      message: 'Xóa commission thành công',
+      deletedOrders: deletedOrders.deletedCount,
+      cloudinaryResults: cloudinaryDeleteResults
+    });
+    
+  } catch (error) {
+    console.error('Delete commission error:', error);
+    res.status(500).json({ error: 'Lỗi khi xóa commission' });
   }
 });
 

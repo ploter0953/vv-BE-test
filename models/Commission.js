@@ -10,6 +10,16 @@ const commissionSchema = new mongoose.Schema({
   requirements: { type: [String], default: [] },
   tags: { type: [String], default: [] },
   examples: { type: [String], default: [] },
+  media: { 
+    type: [
+      {
+        url: { type: String, required: true },
+        type: { type: String, enum: ['image', 'video'], required: true },
+        filename: { type: String }
+      }
+    ], 
+    default: [] 
+  },
   status: { 
     type: String, 
     enum: [
