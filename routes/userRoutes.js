@@ -1,3 +1,4 @@
+console.log('=== USERROUTES.JS ĐANG CHẠY PHIÊN BẢN MỚI NHẤT ===');
 const express = require('express');
 const User = require('../models/User');
 const mongoose = require('mongoose');

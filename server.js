@@ -1,3 +1,4 @@
+console.log('=== SERVER.JS ĐANG CHẠY PHIÊN BẢN MỚI NHẤT ===');
 require('dotenv').config();
 
 const express = require('express');
