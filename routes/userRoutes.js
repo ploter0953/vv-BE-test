@@ -88,12 +88,13 @@ router.post('/clerk-sync', async (req, res) => {
         message: 'User đã tồn tại, trả về profile.'
       });
     }
-    user = await User.create({
+    // Log object tạo user mới
+    const newUserObj = {
       clerkId,
       email,
       username: username || '',
       avatar: avatar || '',
-      banner: '', // Ensure banner field is always set
+      banner: '',
       role: 'user',
       badges: ['member'],
       bio: '',
@@ -103,7 +104,9 @@ router.post('/clerk-sync', async (req, res) => {
       profile_email: '',
       vtuber_description: '',
       artist_description: ''
-    });
+    };
+    console.log('[DEBUG] Creating new user:', newUserObj);
+    user = await User.create(newUserObj);
     return res.status(201).json({
       user,
       message: 'Tạo user mới thành công.'
