@@ -546,6 +546,7 @@ app.put('/api/users/:id', requireAuth(), async (req, res) => {
     // Update user fields
     const updateData = {
       avatar: avatar || user.avatar,
+      banner: req.body.banner || user.banner,
       bio: bio || user.bio,
       description: description || user.description,
       facebook: facebook || user.facebook,
