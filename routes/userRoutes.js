@@ -93,7 +93,8 @@ router.post('/clerk-sync', async (req, res) => {
       email,
       username: username || '',
       avatar: avatar || '',
-      banner: '',
+      banner: '', // Ensure banner field is always set
+      role: 'user',
       badges: ['member'],
       bio: '',
       description: '',
