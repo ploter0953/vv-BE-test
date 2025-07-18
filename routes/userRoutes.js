@@ -105,8 +105,9 @@ router.post('/clerk-sync', async (req, res) => {
       vtuber_description: '',
       artist_description: ''
     };
-    console.log('[DEBUG] Creating new user:', newUserObj);
+    console.log('[DEBUG] Object gửi vào User.create:', newUserObj);
     user = await User.create(newUserObj);
+    console.log('[DEBUG] User document sau khi tạo:', user);
     return res.status(201).json({
       user,
       message: 'Tạo user mới thành công.'
