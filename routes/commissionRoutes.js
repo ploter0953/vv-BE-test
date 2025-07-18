@@ -81,7 +81,7 @@ router.post('/', requireAuth(), async (req, res) => {
       });
     }
     
-    const { title, description, type, price, currency, deadline, requirements, tags, examples, media } = req.body;
+    const { title, description, type, price, currency, deadline, requirements, tags, 'media-img': mediaImg, 'media-vid': mediaVid } = req.body;
     
     console.log('Extracted data:');
     console.log('- Title:', title);
@@ -92,8 +92,8 @@ router.post('/', requireAuth(), async (req, res) => {
     console.log('- Deadline:', deadline);
     console.log('- Requirements:', requirements);
     console.log('- Tags:', tags);
-    console.log('- Examples:', examples);
-    console.log('- Media:', media);
+    console.log('- Media Images:', mediaImg);
+    console.log('- Media Videos:', mediaVid);
     
     const commission = new Commission({
       title,
@@ -104,8 +104,8 @@ router.post('/', requireAuth(), async (req, res) => {
       deadline: deadline ? new Date(deadline) : undefined,
       requirements,
       tags,
-      examples,
-      media: media || [],
+      'media-img': mediaImg || [],
+      'media-vid': mediaVid || [],
       user: req.auth.userId,
     });
     
@@ -162,7 +162,8 @@ router.get('/', async (req, res) => {
       commissionObj.deadline = commissionObj.deadline || null;
       commissionObj.requirements = commissionObj.requirements || [];
       commissionObj.tags = commissionObj.tags || [];
-      commissionObj.examples = commissionObj.examples || [];
+      commissionObj['media-img'] = commissionObj['media-img'] || [];
+      commissionObj['media-vid'] = commissionObj['media-vid'] || [];
       // Always provide user_id for FE compatibility
       commissionObj.user_id = commissionObj.user;
       
@@ -170,7 +171,8 @@ router.get('/', async (req, res) => {
         id: commissionObj._id,
         title: commissionObj.title,
         artistName: commissionObj.artistName,
-        examples: commissionObj.examples.length
+        mediaImages: commissionObj['media-img'].length,
+        mediaVideos: commissionObj['media-vid'].length
       });
       
       return commissionObj;
@@ -223,7 +225,8 @@ router.get('/:id', async (req, res) => {
     commissionObj.deadline = commissionObj.deadline || null;
     commissionObj.requirements = commissionObj.requirements || [];
     commissionObj.tags = commissionObj.tags || [];
-    commissionObj.examples = commissionObj.examples || [];
+    commissionObj['media-img'] = commissionObj['media-img'] || [];
+    commissionObj['media-vid'] = commissionObj['media-vid'] || [];
     // Always provide user_id for FE compatibility
     commissionObj.user_id = commissionObj.user;
     
@@ -406,18 +409,14 @@ router.delete('/:id', requireAuth(), async (req, res) => {
     // Thu thập tất cả URLs cần xóa từ Cloudinary
     const urlsToDelete = [];
     
-    // Thêm examples URLs
-    if (commission.examples && commission.examples.length > 0) {
-      urlsToDelete.push(...commission.examples);
+    // Thêm media-img URLs
+    if (commission['media-img'] && commission['media-img'].length > 0) {
+      urlsToDelete.push(...commission['media-img']);
     }
     
-    // Thêm media URLs
-    if (commission.media && commission.media.length > 0) {
-      commission.media.forEach(media => {
-        if (media.url) {
-          urlsToDelete.push(media.url);
-        }
-      });
+    // Thêm media-vid URLs
+    if (commission['media-vid'] && commission['media-vid'].length > 0) {
+      urlsToDelete.push(...commission['media-vid']);
     }
     
     console.log('URLs to delete from Cloudinary:', urlsToDelete);

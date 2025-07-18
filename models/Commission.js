@@ -9,17 +9,8 @@ const commissionSchema = new mongoose.Schema({
   deadline: { type: Date },
   requirements: { type: [String], default: [] },
   tags: { type: [String], default: [] },
-  examples: { type: [String], default: [] },
-  media: { 
-    type: [
-      {
-        url: { type: String, required: true },
-        type: { type: String, enum: ['image', 'video'], required: true },
-        filename: { type: String }
-      }
-    ], 
-    default: [] 
-  },
+  'media-img': { type: [String], default: [] }, // Array of image URLs
+  'media-vid': { type: [String], default: [] }, // Array of video URLs (max 40MB each)
   status: { 
     type: String, 
     enum: [
