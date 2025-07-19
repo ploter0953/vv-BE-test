@@ -341,6 +341,37 @@ app.get('/api/test/commissions', async (req, res) => {
   }
 });
 
+// Fix usernames for existing users
+app.post('/api/users/fix-usernames', async (req, res) => {
+  try {
+    console.log('Fixing usernames for existing users...');
+    
+    const users = await User.find({});
+    let updatedCount = 0;
+    
+    for (const user of users) {
+      if (!user.username || user.username === '') {
+        let newUsername = 'User';
+        if (user.email) {
+          newUsername = user.email.split('@')[0];
+        }
+        
+        await User.findByIdAndUpdate(user._id, { username: newUsername });
+        updatedCount++;
+        console.log(`Updated user ${user._id}: ${newUsername}`);
+      }
+    }
+    
+    res.json({ 
+      message: `Updated ${updatedCount} users with usernames`,
+      updatedCount 
+    });
+  } catch (error) {
+    console.error('Error fixing usernames:', error);
+    res.status(500).json({ error: 'Error fixing usernames' });
+  }
+});
+
 // Clerk sync endpoint from userRoutes.js
 app.post('/api/users/clerk-sync', requireAuth(), async (req, res) => {
   try {
@@ -356,11 +387,18 @@ app.post('/api/users/clerk-sync', requireAuth(), async (req, res) => {
         message: 'User đã tồn tại, trả về profile.'
       });
     }
+    
+    // Generate username from email if not provided
+    let finalUsername = username;
+    if (!finalUsername && email) {
+      finalUsername = email.split('@')[0]; // Use part before @ as username
+    }
+    
     // Nếu chưa có, tạo mới user với các trường mặc định
     user = await User.create({
       clerkId,
       email,
-      username: username || '',
+      username: finalUsername || 'User',
       avatar: avatar || '',
       badges: ['member'],
       bio: '',

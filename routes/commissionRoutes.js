@@ -87,6 +87,45 @@ router.get('/test', (req, res) => {
   });
 });
 
+// Test endpoint to check commission data
+router.get('/test/data', async (req, res) => {
+  try {
+    console.log('Testing commission data...');
+    
+    // Get raw commission count
+    const count = await Commission.countDocuments();
+    console.log('Total commissions in database:', count);
+    
+    // Get a sample commission without populate
+    const sampleCommission = await Commission.findOne().lean();
+    console.log('Sample commission (no populate):', sampleCommission);
+    
+    // Get a sample commission with populate
+    const sampleCommissionWithUser = await Commission.findOne().populate('user').lean();
+    console.log('Sample commission (with populate):', sampleCommissionWithUser);
+    
+    // Get all users
+    const userCount = await User.countDocuments();
+    console.log('Total users in database:', userCount);
+    
+    // Get a sample user
+    const sampleUser = await User.findOne().lean();
+    console.log('Sample user:', sampleUser);
+    
+    res.json({ 
+      message: 'Commission data test successful',
+      totalCommissions: count,
+      totalUsers: userCount,
+      sampleCommission: sampleCommission,
+      sampleCommissionWithUser: sampleCommissionWithUser,
+      sampleUser: sampleUser
+    });
+  } catch (error) {
+    console.error('Commission data test error:', error);
+    res.status(500).json({ error: 'Commission data test failed: ' + error.message });
+  }
+});
+
 // Create commission
 router.post('/', requireAuth(), async (req, res) => {
   try {
@@ -104,16 +143,28 @@ router.post('/', requireAuth(), async (req, res) => {
       return res.status(401).json({ message: 'User not authenticated' });
     }
 
+    console.log('Creating commission for user ID:', userId);
+
     // Try to find user by Clerk ID first, then by MongoDB ID
     let user = await User.findOne({ clerkId: userId });
+    console.log('User found by clerkId:', user ? user.username : 'Not found');
+    
     if (!user) {
       user = await User.findById(userId);
+      console.log('User found by MongoDB ID:', user ? user.username : 'Not found');
     }
     
     if (!user) {
       console.error('User not found for ID:', userId);
       return res.status(404).json({ message: 'User not found' });
     }
+
+    console.log('User details:', {
+      _id: user._id,
+      clerkId: user.clerkId,
+      username: user.username,
+      email: user.email
+    });
 
     if (!user.facebook) {
       return res.status(400).json({ message: 'Bạn cần có link Facebook để tạo commission' });
@@ -149,7 +200,9 @@ router.post('/', requireAuth(), async (req, res) => {
       status: 'open'
     });
 
+    console.log('Saving commission with user ID:', commission.user);
     await commission.save();
+    console.log('Commission saved successfully');
 
     res.status(201).json({ 
       message: 'Commission created successfully',
@@ -170,20 +223,37 @@ router.get('/', async (req, res) => {
       return res.status(500).json({ message: 'Database connection error' });
     }
 
+    console.log('Fetching commissions with populate...');
     const commissions = await Commission.find()
-      .populate('user', 'username avatar bio')
+      .populate('user', 'username avatar bio email')
       .sort({ createdAt: -1 });
+
+    console.log(`Found ${commissions.length} commissions`);
+    
+    if (commissions.length > 0) {
+      const sampleCommission = commissions[0].toObject();
+      console.log('Sample commission user data:', sampleCommission.user);
+    }
 
     const processedCommissions = commissions.map(commission => {
       const commissionObj = commission.toObject();
+      
+      // Simple check: if user exists, use it; otherwise set default
+      const userData = commissionObj.user ? {
+        _id: commissionObj.user._id,
+        username: commissionObj.user.username,
+        avatar: commissionObj.user.avatar || '',
+        bio: commissionObj.user.bio || ''
+      } : {
+        _id: null,
+        username: 'Unknown Artist',
+        avatar: '',
+        bio: ''
+      };
+
       return {
         ...commissionObj,
-        user: {
-          _id: commissionObj.user._id,
-          username: commissionObj.user.username,
-          avatar: commissionObj.user.avatar,
-          bio: commissionObj.user.bio
-        }
+        user: userData
       };
     });
 
@@ -211,15 +281,25 @@ router.get('/:id', async (req, res) => {
     }
 
     const commissionObj = commission.toObject();
+    
+    // Simple check: if user exists, use it; otherwise set default
+    const userData = commissionObj.user ? {
+      _id: commissionObj.user._id,
+      username: commissionObj.user.username,
+      avatar: commissionObj.user.avatar || '',
+      bio: commissionObj.user.bio || '',
+      email: commissionObj.user.email || ''
+    } : {
+      _id: null,
+      username: 'Unknown Artist',
+      avatar: '',
+      bio: '',
+      email: ''
+    };
+
     const processedCommission = {
       ...commissionObj,
-      user: {
-        _id: commissionObj.user._id,
-        username: commissionObj.user.username,
-        avatar: commissionObj.user.avatar,
-        bio: commissionObj.user.bio,
-        email: commissionObj.user.email
-      }
+      user: userData
     };
 
     res.json({ commission: processedCommission });
