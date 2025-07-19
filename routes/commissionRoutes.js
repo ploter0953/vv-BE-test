@@ -225,6 +225,15 @@ router.post('/', requireAuth(), async (req, res) => {
       'media-vid': mediaVid
     } = req.body;
 
+    console.log('=== COMMISSION CREATION DEBUG ===');
+    console.log('Request body size:', JSON.stringify(req.body).length, 'characters');
+    console.log('Title:', title);
+    console.log('Description length:', description?.length || 0);
+    console.log('Media images count:', (mediaImg || []).length);
+    console.log('Media videos count:', (mediaVid || []).length);
+    console.log('Media images URLs:', mediaImg);
+    console.log('Media videos URLs:', mediaVid);
+
     // Create commission object
     const commission = new Commission({
       user: user._id, // Use MongoDB ObjectId
@@ -241,9 +250,13 @@ router.post('/', requireAuth(), async (req, res) => {
       status: 'open'
     });
 
-    console.log('Saving commission with user ID:', commission.user);
+    console.log('Commission object created, about to save...');
+    console.log('Commission user ID:', commission.user);
+    console.log('Commission media-img:', commission['media-img']);
+    console.log('Commission media-vid:', commission['media-vid']);
+    
     await commission.save();
-    console.log('Commission saved successfully');
+    console.log('=== COMMISSION SAVED SUCCESSFULLY ===');
 
     res.status(201).json({ 
       message: 'Commission created successfully',
