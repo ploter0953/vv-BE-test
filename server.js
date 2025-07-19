@@ -142,10 +142,11 @@ const corsOptions = {
   origin: function (origin, callback) {
     const allowedOrigins = getAllowedOrigins();
     
-    // Block requests with no origin (direct API access, Postman, curl, etc.)
+    // Allow requests with no origin ONLY for upload endpoints (needed for some browsers/networks)
     if (!origin) {
-      console.log('CORS: No origin - BLOCKING request (direct API access not allowed)');
-      return callback(new Error('Truy cập trực tiếp API không được phép'), false);
+      console.log('CORS: No origin header detected');
+      // We'll handle this case in the upload-specific middleware
+      return callback(null, true);
     }
     
     // Check if origin is allowed
@@ -167,11 +168,98 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
-// Apply origin validation middleware to all API routes
-app.use('/api', validateOrigin);
+// Apply origin validation middleware to all API routes except uploads
+app.use('/api', (req, res, next) => {
+  // For upload endpoints, apply selective no-origin validation
+  if (req.path.startsWith('/upload/')) {
+    console.log('Upload endpoint detected:', req.path);
+    const origin = req.headers.origin;
+    
+    // For upload endpoints, only allow no-origin if it's from legitimate sources
+    if (!origin) {
+      console.log('No origin for upload endpoint - allowing but will verify auth');
+      // Still require authentication - no free access
+      return next();
+    }
+    
+    // If there is an origin, it must be from allowed domains
+    const allowedOrigins = getAllowedOrigins();
+    if (!allowedOrigins.includes(origin)) {
+      console.log(`Upload endpoint: Origin ${origin} is NOT allowed - blocking request`);
+      return res.status(403).json({
+        error: 'Truy cập không được phép từ domain này',
+        message: 'Upload chỉ được phép từ domain chính thức',
+        allowedOrigins: process.env.NODE_ENV === 'development' ? allowedOrigins : undefined
+      });
+    }
+    
+    console.log(`Upload endpoint: Origin ${origin} is allowed`);
+    return next();
+  }
+  
+  // For non-upload endpoints, apply strict origin validation
+  const origin = req.headers.origin;
+  const allowedOrigins = getAllowedOrigins();
+  
+  // Block requests with no origin for non-upload endpoints
+  if (!origin) {
+    console.log('No origin header - BLOCKING request (direct API access not allowed)');
+    return res.status(403).json({
+      error: 'Truy cập trực tiếp API không được phép',
+      message: 'Vui lòng truy cập từ domain chính thức: https://www.projectvtuber.com',
+      allowedOrigins: process.env.NODE_ENV === 'development' ? allowedOrigins : undefined
+    });
+  }
+  
+  // Check if origin is allowed
+  if (allowedOrigins.includes(origin)) {
+    console.log(`Origin ${origin} is allowed`);
+    return next();
+  }
+  
+  // Block unauthorized origin
+  console.log(`Origin ${origin} is NOT allowed - blocking request`);
+  return res.status(403).json({
+    error: 'Truy cập không được phép từ domain này',
+    message: 'Vui lòng truy cập từ domain chính thức: https://www.projectvtuber.com',
+    allowedOrigins: process.env.NODE_ENV === 'development' ? allowedOrigins : undefined
+  });
+});
 
 // Additional security: Check Referer header for API routes
 app.use('/api', (req, res, next) => {
+  // For upload endpoints, apply selective referer validation
+  if (req.path.startsWith('/upload/')) {
+    console.log('Upload endpoint referer check:', req.path);
+    const referer = req.headers.referer;
+    
+    // Skip referer check for OPTIONS requests (preflight)
+    if (req.method === 'OPTIONS') {
+      return next();
+    }
+    
+    // If there's a referer, it must be from allowed domain
+    if (referer) {
+      const allowedOrigins = getAllowedOrigins();
+      const refererUrl = new URL(referer);
+      const refererOrigin = refererUrl.origin;
+      
+      if (!allowedOrigins.includes(refererOrigin)) {
+        console.log(`Upload endpoint: Referer ${refererOrigin} is NOT allowed - blocking request`);
+        return res.status(403).json({
+          error: 'Truy cập không được phép từ domain này',
+          message: 'Upload chỉ được phép từ domain chính thức'
+        });
+      }
+      
+      console.log(`Upload endpoint: Referer ${refererOrigin} is allowed`);
+    } else {
+      console.log('Upload endpoint: No referer header - allowing but will verify auth');
+    }
+    
+    return next();
+  }
+  
   const referer = req.headers.referer;
   const allowedOrigins = getAllowedOrigins();
   
@@ -180,6 +268,7 @@ app.use('/api', (req, res, next) => {
     return next();
   }
   
+  // For non-upload endpoints, check referer
   // Block requests without referer (direct API access)
   if (!referer) {
     console.log('No referer header - BLOCKING request (direct API access not allowed)');
@@ -207,6 +296,12 @@ app.use('/api', (req, res, next) => {
 
 // Additional security: Block common API testing tools
 app.use('/api', (req, res, next) => {
+  // Skip user-agent check for upload endpoints
+  if (req.path.startsWith('/upload/')) {
+    console.log('Skipping user-agent validation for upload endpoint:', req.path);
+    return next();
+  }
+  
   const userAgent = req.headers['user-agent'] || '';
   const blockedTools = [
     'postman',
@@ -1122,12 +1217,167 @@ app.post('/api/upload/images', requireAuth(), upload.array('images', 10), async 
   }
 });
 
+// Test endpoint to check upload availability  
+app.get('/api/upload/media/test', (req, res) => {
+  console.log('=== UPLOAD TEST ENDPOINT HIT ===');
+  console.log('Headers:', req.headers);
+  console.log('Origin:', req.headers.origin);
+  console.log('Referer:', req.headers.referer);
+  res.json({ 
+    message: 'Upload endpoint is accessible',
+    timestamp: new Date().toISOString(),
+    headers: {
+      origin: req.headers.origin,
+      referer: req.headers.referer,
+      'user-agent': req.headers['user-agent']
+    }
+  });
+});
+
+// Simple rate limiting for uploads (in memory - for production use Redis)
+const uploadRateLimit = new Map();
+const UPLOAD_RATE_LIMIT = 10; // Max 10 uploads per hour per user
+const UPLOAD_RATE_WINDOW = 60 * 60 * 1000; // 1 hour in milliseconds
+
+function checkUploadRateLimit(userId) {
+  const now = Date.now();
+  const userKey = `upload_${userId}`;
+  
+  if (!uploadRateLimit.has(userKey)) {
+    uploadRateLimit.set(userKey, { count: 1, resetTime: now + UPLOAD_RATE_WINDOW });
+    return true;
+  }
+  
+  const userLimit = uploadRateLimit.get(userKey);
+  
+  // Reset if window expired
+  if (now > userLimit.resetTime) {
+    uploadRateLimit.set(userKey, { count: 1, resetTime: now + UPLOAD_RATE_WINDOW });
+    return true;
+  }
+  
+  // Check if within limit
+  if (userLimit.count >= UPLOAD_RATE_LIMIT) {
+    return false;
+  }
+  
+  // Increment count
+  userLimit.count++;
+  return true;
+}
+
 // Upload media (image/video) to Cloudinary - up to 40MB
-app.post('/api/upload/media', requireAuth(), mediaUpload.single('media'), async (req, res) => {
+app.post('/api/upload/media', (req, res, next) => {
+  console.log('=== UPLOAD MEDIA ENDPOINT STARTING ===');
+  console.log('Headers:', {
+    origin: req.headers.origin,
+    referer: req.headers.referer,
+    'content-type': req.headers['content-type'],
+    'content-length': req.headers['content-length'],
+    authorization: req.headers.authorization ? 'Present' : 'Missing'
+  });
+  console.log('Query params:', req.query);
+  
+  // Additional security: Check for suspicious patterns
+  const userAgent = req.headers['user-agent'] || '';
+  const suspiciousPatterns = ['curl', 'wget', 'python-requests', 'postman'];
+  const isSuspicious = suspiciousPatterns.some(pattern => 
+    userAgent.toLowerCase().includes(pattern.toLowerCase())
+  );
+  
+  if (isSuspicious && !req.headers.origin && !req.headers.referer) {
+    console.log('⚠️ Suspicious request detected:', userAgent);
+    return res.status(403).json({ 
+      error: 'Request không được phép',
+      hint: 'Vui lòng sử dụng trình duyệt web'
+    });
+  }
+  
+  console.log('Applying requireAuth middleware...');
+  
+  // Apply requireAuth with custom error handling
+  requireAuth()(req, res, (err) => {
+    if (err) {
+      console.error('requireAuth failed:', err);
+      return res.status(401).json({ 
+        error: 'Authentication failed', 
+        details: err.message,
+        hint: 'Kiểm tra token Clerk'
+      });
+    }
+    console.log('requireAuth successful, user:', req.auth?.userId);
+    
+    // Apply rate limiting
+    if (!checkUploadRateLimit(req.auth.userId)) {
+      console.log('⚠️ Upload rate limit exceeded for user:', req.auth.userId);
+      return res.status(429).json({
+        error: 'Quá nhiều upload',
+        message: 'Vui lòng chờ một chút trước khi upload tiếp',
+        limit: `${UPLOAD_RATE_LIMIT} uploads per hour`
+      });
+    }
+    
+    next();
+  });
+}, (req, res, next) => {
+  console.log('Before multer middleware');
+  mediaUpload.single('media')(req, res, (err) => {
+    console.log('After multer middleware');
+    if (err) {
+      console.error('Multer error:', err);
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ error: 'File quá lớn. Tối đa 40MB.' });
+      }
+      if (err.message.includes('file hình ảnh hoặc video')) {
+        return res.status(400).json({ error: err.message });
+      }
+      return res.status(400).json({ error: 'Lỗi upload file: ' + err.message });
+    }
+    next();
+  });
+}, async (req, res) => {
+  console.log('=== MEDIA UPLOAD ENDPOINT HIT ===');
+  console.log('File:', req.file ? {
+    fieldname: req.file.fieldname,
+    originalname: req.file.originalname,
+    mimetype: req.file.mimetype,
+    size: req.file.size
+  } : 'NO FILE');
+  console.log('User:', req.auth?.userId);
+  console.log('Query:', req.query);
+  
   try {
     if (!req.file) {
+      console.log('No file received in request');
       return res.status(400).json({ error: 'Không có file được upload' });
     }
+    
+    // Additional security: Validate file type more strictly
+    const allowedImageTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    const allowedVideoTypes = ['video/mp4', 'video/webm', 'video/ogg', 'video/mov'];
+    const allAllowedTypes = [...allowedImageTypes, ...allowedVideoTypes];
+    
+    if (!allAllowedTypes.includes(req.file.mimetype)) {
+      console.log('⚠️ Invalid file type:', req.file.mimetype);
+      return res.status(400).json({ 
+        error: 'Loại file không được hỗ trợ',
+        allowed: 'Chỉ chấp nhận: JPEG, PNG, WebP, GIF, MP4, WebM, OGG, MOV'
+      });
+    }
+    
+    // Additional security: Check file size limits by type
+    const maxImageSize = 5 * 1024 * 1024; // 5MB for images
+    const maxVideoSize = 40 * 1024 * 1024; // 40MB for videos
+    
+    if (req.file.mimetype.startsWith('image/') && req.file.size > maxImageSize) {
+      return res.status(400).json({ error: 'Ảnh tối đa 5MB' });
+    }
+    
+    if (req.file.mimetype.startsWith('video/') && req.file.size > maxVideoSize) {
+      return res.status(400).json({ error: 'Video tối đa 40MB' });
+    }
+    
+    console.log('Processing file:', req.file.originalname, req.file.size, 'bytes');
 
     // Convert buffer to base64
     const b64 = Buffer.from(req.file.buffer).toString('base64');
@@ -1135,11 +1385,14 @@ app.post('/api/upload/media', requireAuth(), mediaUpload.single('media'), async 
 
     // Determine resource type
     const resourceType = req.file.mimetype.startsWith('video/') ? 'video' : 'image';
+    console.log('Determined resource type:', resourceType);
+    
     // Xác định folder theo query param type
     let folder = 'vtuberverse/commission';
     if (req.query.type === 'avatar' || req.query.type === 'banner') {
       folder = 'vtuberverse/users';
     }
+    console.log('Upload folder:', folder);
 
     // Upload to Cloudinary with appropriate settings
     const uploadOptions = {
@@ -1158,7 +1411,15 @@ app.post('/api/upload/media', requireAuth(), mediaUpload.single('media'), async 
       ];
     }
 
+    console.log('Uploading to Cloudinary with options:', uploadOptions);
     const result = await cloudinary.uploader.upload(dataURI, uploadOptions);
+    console.log('Cloudinary upload result:', {
+      public_id: result.public_id,
+      secure_url: result.secure_url,
+      resource_type: result.resource_type,
+      format: result.format,
+      bytes: result.bytes
+    });
 
     res.json({
       success: true,
@@ -1182,7 +1443,9 @@ app.delete('/api/upload/image/:public_id', requireAuth(), async (req, res) => {
   try {
     const { public_id } = req.params;
     
-    const result = await cloudinary.uploader.destroy(public_id);
+    const result = await cloudinary.uploader.destroy(public_id, {
+      resource_type: 'image'
+    });
     
     if (result.result === 'ok') {
       res.json({ success: true, message: 'Xóa hình ảnh thành công' });
@@ -1192,6 +1455,26 @@ app.delete('/api/upload/image/:public_id', requireAuth(), async (req, res) => {
   } catch (error) {
     console.error('Delete error:', error);
     res.status(500).json({ error: 'Lỗi khi xóa hình ảnh' });
+  }
+});
+
+// Delete video from Cloudinary
+app.delete('/api/upload/video/:public_id', requireAuth(), async (req, res) => {
+  try {
+    const { public_id } = req.params;
+    
+    const result = await cloudinary.uploader.destroy(public_id, {
+      resource_type: 'video'
+    });
+    
+    if (result.result === 'ok') {
+      res.json({ success: true, message: 'Xóa video thành công' });
+    } else {
+      res.status(400).json({ error: 'Không thể xóa video' });
+    }
+  } catch (error) {
+    console.error('Delete video error:', error);
+    res.status(500).json({ error: 'Lỗi khi xóa video' });
   }
 });
 
@@ -1220,6 +1503,36 @@ app.delete('/api/upload/image-by-url', requireAuth(), async (req, res) => {
   } catch (error) {
     console.error('Delete image by URL error:', error);
     res.status(500).json({ error: 'Lỗi khi xóa hình ảnh' });
+  }
+});
+
+// Delete video from Cloudinary by URL
+app.delete('/api/upload/video-by-url', requireAuth(), async (req, res) => {
+  try {
+    const { videoUrl } = req.body;
+    
+    if (!videoUrl) {
+      return res.status(400).json({ error: 'Video URL is required' });
+    }
+    
+    const publicId = extractPublicIdFromCloudinaryUrl(videoUrl);
+    
+    if (!publicId) {
+      return res.status(400).json({ error: 'Invalid Cloudinary URL' });
+    }
+    
+    const result = await cloudinary.uploader.destroy(publicId, {
+      resource_type: 'video'
+    });
+    
+    if (result.result === 'ok') {
+      res.json({ success: true, message: 'Xóa video thành công', publicId });
+    } else {
+      res.status(400).json({ error: 'Không thể xóa video' });
+    }
+  } catch (error) {
+    console.error('Delete video by URL error:', error);
+    res.status(500).json({ error: 'Lỗi khi xóa video' });
   }
 });
 
@@ -1712,6 +2025,47 @@ app.use((req, res) => {
     error: 'API endpoint not found',
     path: req.path,
     timestamp: new Date().toISOString()
+  });
+});
+
+// 404 handler for unmatched routes
+app.use((req, res, next) => {
+  console.log(`=== 404 ERROR ===`);
+  console.log(`Method: ${req.method}`);
+  console.log(`Path: ${req.path}`);
+  console.log(`Full URL: ${req.originalUrl}`);
+  console.log(`Headers:`, {
+    origin: req.headers.origin,
+    referer: req.headers.referer,
+    'user-agent': req.headers['user-agent']?.substring(0, 100)
+  });
+  
+  res.status(404).json({
+    error: 'Endpoint không tìm thấy',
+    method: req.method,
+    path: req.path,
+    message: `Không tìm thấy route ${req.method} ${req.path}`,
+    availableRoutes: {
+      upload: 'POST /api/upload/media',
+      uploadTest: 'GET /api/upload/media/test',
+      commissions: 'GET /api/commissions',
+      createCommission: 'POST /api/commissions'
+    }
+  });
+});
+
+// Global error handler
+app.use((error, req, res, next) => {
+  console.error('=== GLOBAL ERROR HANDLER ===');
+  console.error('Error:', error);
+  console.error('Request path:', req.path);
+  console.error('Request method:', req.method);
+  
+  res.status(500).json({
+    error: 'Lỗi server nội bộ',
+    message: error.message,
+    path: req.path,
+    method: req.method
   });
 });
 

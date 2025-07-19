@@ -16,6 +16,7 @@ function extractPublicIdFromCloudinaryUrl(url) {
   
   try {
     // Cloudinary URL format: https://res.cloudinary.com/cloud_name/image/upload/v1234567890/folder/filename.jpg
+    // Or: https://res.cloudinary.com/cloud_name/video/upload/v1234567890/folder/filename.mp4
     const urlParts = url.split('/');
     const uploadIndex = urlParts.findIndex(part => part === 'upload');
     if (uploadIndex === -1) return null;
@@ -28,8 +29,15 @@ function extractPublicIdFromCloudinaryUrl(url) {
     const startIndex = pathAfterUpload[0].match(/^v\d+$/) ? 1 : 0;
     const publicIdParts = pathAfterUpload.slice(startIndex);
     
-    // Join and remove file extension
-    const publicId = publicIdParts.join('/').replace(/\.[^/.]+$/, '');
+    // Join and remove file extension for images, but keep for videos
+    let publicId = publicIdParts.join('/');
+    
+    // For images, remove extension. For videos, keep extension
+    if (url.includes('/image/')) {
+      publicId = publicId.replace(/\.[^/.]+$/, '');
+    }
+    
+    console.log(`Extracted public_id: ${publicId} from URL: ${url}`);
     return publicId;
   } catch (error) {
     console.error('Error extracting public_id:', error);
@@ -67,7 +75,19 @@ async function deleteFromCloudinary(publicId) {
       return null;
     }
     
-    const result = await cloudinary.uploader.destroy(publicId);
+    // Determine resource type from publicId or URL
+    let resourceType = 'image'; // default
+    if (publicId.includes('video') || publicId.match(/\.(mp4|webm|ogg|mov|avi)$/i)) {
+      resourceType = 'video';
+    }
+    
+    console.log(`Deleting from Cloudinary: ${publicId} (resource_type: ${resourceType})`);
+    
+    const result = await cloudinary.uploader.destroy(publicId, {
+      resource_type: resourceType
+    });
+    
+    console.log('Cloudinary delete result:', result);
     return result;
   } catch (error) {
     console.error('Error deleting from Cloudinary:', error);
