@@ -1,42 +1,38 @@
-console.log('=== USERROUTES.JS ĐANG CHẠY PHIÊN BẢN MỚI NHẤT ===');
 const express = require('express');
 const User = require('../models/User');
 const mongoose = require('mongoose');
 
 const router = express.Router();
 
-// Tìm user theo username (GET /api/users?username=...)
+// Search users by username
 router.get('/', async (req, res) => {
   try {
     const { username } = req.query;
     if (username) {
-      console.log('[DEBUG] Tìm kiếm user:', username);
-      
-      // Tìm kiếm với nhiều điều kiện khác nhau
+      // Search with priority: exact match first, then partial match
       const searchQuery = {
         $or: [
-          // Tìm theo username (exact match hoặc partial match)
+          // Exact match on username (highest priority)
+          { username: { $regex: `^${username}$`, $options: 'i' } },
+          // Partial match on username (second priority)
           { username: { $regex: username, $options: 'i' } },
-          // Tìm theo email (nếu có)
-          { email: { $regex: username, $options: 'i' } },
-          // Tìm theo profile_email (nếu có)
-          { profile_email: { $regex: username, $options: 'i' } },
-          // Tìm theo bio (nếu có)
-          { bio: { $regex: username, $options: 'i' } }
+          // Exact match on email (if username not found)
+          { email: { $regex: `^${username}$`, $options: 'i' } },
+          // Partial match on email (if username not found)
+          { email: { $regex: username, $options: 'i' } }
         ]
       };
       
-      const users = await User.find(searchQuery);
-      console.log('[DEBUG] Số kết quả:', users.length);
-      console.log('[DEBUG] Kết quả tìm kiếm:', users.map(u => ({ username: u.username, email: u.email })));
-      
+      const users = await User.find(searchQuery).sort({ username: 1 });
+      console.log(`[SEARCH] Keyword: "${username}", Found: ${users.length} users`);
+      console.log(`[SEARCH] Results:`, users.map(u => ({ username: u.username, email: u.email })));
       return res.json({ users });
     }
-    // Nếu không có query, trả về tất cả user (hoặc có thể trả về rỗng)
+    // If no query, return all users
     const users = await User.find();
     res.json({ users });
   } catch (err) {
-    console.error('[DEBUG] Lỗi tìm kiếm user:', err);
+    console.error('Error searching users:', err);
     res.status(500).json({ message: err.message });
   }
 });
@@ -93,12 +89,12 @@ router.delete('/:id', async (req, res) => {
 
 // Clerk sync endpoint
 router.post('/clerk-sync-test', async (req, res) => {
-  console.log('=== ĐÃ VÀO ENDPOINT /clerk-sync-test TRONG ROUTER ===');
   try {
     const { clerkId, email, username, avatar } = req.body;
     if (!clerkId || !email) {
       return res.status(400).json({ error: 'clerkId và email là bắt buộc' });
     }
+    
     let user = await User.findOne({ clerkId });
     if (user) {
       return res.json({
@@ -106,7 +102,8 @@ router.post('/clerk-sync-test', async (req, res) => {
         message: 'User đã tồn tại, trả về profile.'
       });
     }
-    // Log object tạo user mới
+    
+    // Create new user object
     const newUserObj = {
       clerkId,
       email,
@@ -123,9 +120,8 @@ router.post('/clerk-sync-test', async (req, res) => {
       vtuber_description: '',
       artist_description: ''
     };
-    console.log('[DEBUG] Object gửi vào User.create:', newUserObj);
+    
     user = await User.create(newUserObj);
-    console.log('[DEBUG] User document sau khi tạo:', user);
     return res.status(201).json({
       user,
       message: 'Tạo user mới thành công.'

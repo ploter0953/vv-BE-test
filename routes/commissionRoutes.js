@@ -57,216 +57,155 @@ async function deleteCloudinaryFiles(urls) {
   return Promise.all(deletePromises);
 }
 
+// Delete image from Cloudinary
+async function deleteFromCloudinary(publicId) {
+  try {
+    const result = await cloudinary.uploader.destroy(publicId);
+    return result;
+  } catch (error) {
+    console.error('Error deleting from Cloudinary:', error);
+    return null;
+  }
+}
+
 // Use requireAuth() for all protected routes:
 // router.post('/', requireAuth(), ...)
 
-// Tạo commission
+// Create commission
 router.post('/', requireAuth(), async (req, res) => {
-  console.log('=== CREATE COMMISSION ===');
-  console.log('User ID:', req.auth.userId);
-  console.log('Request body:', req.body);
   try {
-    // Kiểm tra user có Facebook link không
-    const user = await User.findOne({ clerkId: req.auth.userId });
+    const user = await User.findById(req.auth.userId);
     if (!user) {
-      console.log('User not found');
       return res.status(404).json({ message: 'User not found' });
     }
-    
-    if (!user.facebook || user.facebook.trim() === '') {
-      console.log('User does not have Facebook link');
-      return res.status(400).json({ 
-        message: 'Bạn vui lòng cập nhật Facebook trong phần hồ sơ để tạo commission',
-        error: 'FACEBOOK_REQUIRED'
-      });
+
+    if (!user.facebook) {
+      return res.status(400).json({ message: 'Bạn cần có link Facebook để tạo commission' });
     }
-    
-    const { title, description, type, price, currency, deadline, requirements, tags, 'media-img': mediaImg, 'media-vid': mediaVid } = req.body;
-    
-    console.log('Extracted data:');
-    console.log('- Title:', title);
-    console.log('- Description:', description);
-    console.log('- Type:', type);
-    console.log('- Price:', price, 'Type:', typeof price);
-    console.log('- Currency:', currency);
-    console.log('- Deadline:', deadline);
-    console.log('- Requirements:', requirements);
-    console.log('- Tags:', tags);
-    console.log('- Media Images:', mediaImg);
-    console.log('- Media Videos:', mediaVid);
-    
+
+    // Extract data from request body
+    const {
+      title,
+      description,
+      type,
+      price,
+      currency,
+      deadline,
+      requirements,
+      tags,
+      'media-img': mediaImg,
+      'media-vid': mediaVid
+    } = req.body;
+
+    // Create commission object
     const commission = new Commission({
+      user: req.auth.userId,
       title,
       description,
       type,
       price: Number(price),
       currency,
-      deadline: deadline ? new Date(deadline) : undefined,
+      deadline: new Date(deadline),
       requirements,
       tags,
       'media-img': mediaImg || [],
       'media-vid': mediaVid || [],
-      user: req.auth.userId,
+      status: 'open'
     });
-    
-    console.log('Commission object before save:', JSON.stringify(commission, null, 2));
-    
+
     await commission.save();
-    
-    console.log('Commission saved successfully with ID:', commission._id);
-    console.log('Final commission object:', JSON.stringify(commission, null, 2));
-    
-    res.status(201).json(commission);
-    console.log('=== CREATE COMMISSION SUCCESS ===');
-  } catch (err) {
-    console.error('=== CREATE COMMISSION ERROR ===');
-    console.error('Error:', err.message);
-    res.status(500).json({ message: err.message });
+
+    res.status(201).json({ 
+      message: 'Commission created successfully',
+      commission 
+    });
+  } catch (error) {
+    console.error('Error creating commission:', error);
+    res.status(500).json({ message: 'Error creating commission' });
   }
 });
 
-// Lấy tất cả commission
+// Get all commissions
 router.get('/', async (req, res) => {
-  console.log('=== FETCH ALL COMMISSIONS ===');
   try {
-    console.log('=== FETCHING COMMISSIONS ===');
-    
-    // Lấy tất cả commission
-    const commissions = await Commission.find();
-    
-    console.log('Found commissions:', commissions.length);
-    
-    // Xử lý dữ liệu trước khi trả về
-    const processedCommissions = await Promise.all(commissions.map(async (commission) => {
+    const commissions = await Commission.find()
+      .populate('user', 'username avatar bio')
+      .sort({ createdAt: -1 });
+
+    const processedCommissions = commissions.map(commission => {
       const commissionObj = commission.toObject();
-      
-      // Tìm thông tin user từ Clerk ID
-      const user = await User.findOne({ clerkId: commissionObj.user });
-      
-      // Đảm bảo user info được hiển thị đúng
-      if (user) {
-        commissionObj.artistName = user.username || 'Unknown Artist';
-        commissionObj.artistEmail = user.email;
-        commissionObj.artistAvatar = user.avatar;
-        commissionObj.artistRole = user.role;
-      } else {
-        commissionObj.artistName = 'Unknown Artist';
-        commissionObj.artistEmail = '';
-        commissionObj.artistAvatar = '';
-        commissionObj.artistRole = 'user';
-      }
-      
-      // Đảm bảo các trường mới có giá trị mặc định
-      commissionObj.type = commissionObj.type || '';
-      commissionObj.currency = commissionObj.currency || 'VND';
-      commissionObj.deadline = commissionObj.deadline || null;
-      commissionObj.requirements = commissionObj.requirements || [];
-      commissionObj.tags = commissionObj.tags || [];
-      commissionObj['media-img'] = commissionObj['media-img'] || [];
-      commissionObj['media-vid'] = commissionObj['media-vid'] || [];
-      // Always provide user_id for FE compatibility
-      commissionObj.user_id = commissionObj.user;
-      
-      console.log('Processed commission:', {
-        id: commissionObj._id,
-        title: commissionObj.title,
-        artistName: commissionObj.artistName,
-        mediaImages: commissionObj['media-img'].length,
-        mediaVideos: commissionObj['media-vid'].length
-      });
-      
-      return commissionObj;
-    }));
-    
-    console.log('Returning', processedCommissions.length, 'commissions');
-    res.json({ commissions: processedCommissions });
-    console.log('=== FETCH ALL COMMISSIONS SUCCESS ===');
-  } catch (err) {
-    console.error('=== COMMISSION FETCH ERROR ===');
-    console.error('Error:', err.message);
-    res.status(500).json({ message: err.message });
-  }
-});
-
-// Lấy commission theo id
-router.get('/:id', async (req, res) => {
-  console.log('=== FETCH SINGLE COMMISSION ===');
-  console.log('Commission ID:', req.params.id);
-  try {
-    console.log('=== FETCHING SINGLE COMMISSION ===');
-    
-    const commission = await Commission.findById(req.params.id);
-    if (!commission) {
-      console.log('Commission not found');
-      return res.status(404).json({ message: 'Not found' });
-    }
-    
-    const commissionObj = commission.toObject();
-    
-    // Tìm thông tin user từ Clerk ID
-    const user = await User.findOne({ clerkId: commissionObj.user });
-    
-    // Đảm bảo user info được hiển thị đúng
-    if (user) {
-      commissionObj.artistName = user.username || 'Unknown Artist';
-      commissionObj.artistEmail = user.email;
-      commissionObj.artistAvatar = user.avatar;
-      commissionObj.artistRole = user.role;
-    } else {
-      commissionObj.artistName = 'Unknown Artist';
-      commissionObj.artistEmail = '';
-      commissionObj.artistAvatar = '';
-      commissionObj.artistRole = 'user';
-    }
-    
-    // Đảm bảo các trường mới có giá trị mặc định
-    commissionObj.type = commissionObj.type || '';
-    commissionObj.currency = commissionObj.currency || 'VND';
-    commissionObj.deadline = commissionObj.deadline || null;
-    commissionObj.requirements = commissionObj.requirements || [];
-    commissionObj.tags = commissionObj.tags || [];
-    commissionObj['media-img'] = commissionObj['media-img'] || [];
-    commissionObj['media-vid'] = commissionObj['media-vid'] || [];
-    // Always provide user_id for FE compatibility
-    commissionObj.user_id = commissionObj.user;
-    
-    console.log('Returning commission:', {
-      id: commissionObj._id,
-      title: commissionObj.title,
-      artistName: commissionObj.artistName
+      return {
+        ...commissionObj,
+        user: {
+          _id: commissionObj.user._id,
+          username: commissionObj.user.username,
+          avatar: commissionObj.user.avatar,
+          bio: commissionObj.user.bio
+        }
+      };
     });
-    
-    res.json({ commission: commissionObj });
-    console.log('=== FETCH SINGLE COMMISSION SUCCESS ===');
-  } catch (err) {
-    console.error('=== SINGLE COMMISSION FETCH ERROR ===');
-    console.error('Error:', err.message);
-    res.status(500).json({ message: err.message });
+
+    res.json({ commissions: processedCommissions });
+  } catch (error) {
+    console.error('Error fetching commissions:', error);
+    res.status(500).json({ message: 'Error fetching commissions' });
   }
 });
 
-// Cập nhật commission
-router.put('/:id', requireAuth(), async (req, res) => {
-  console.log('=== UPDATE COMMISSION ===');
-  console.log('User ID:', req.auth.userId, 'CommissionId:', req.params.id, 'Body:', req.body);
+// Get single commission
+router.get('/:id', async (req, res) => {
   try {
-    const commission = await Commission.findById(req.params.id);
-    if (!commission) return res.status(404).json({ message: 'Not found' });
-    const user = await User.findOne({ clerkId: req.auth.userId });
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
+    const commission = await Commission.findById(req.params.id)
+      .populate('user', 'username avatar bio email');
+
+    if (!commission) {
+      return res.status(404).json({ message: 'Commission not found' });
     }
-    if (commission.user.toString() !== req.auth.userId && user.role !== 'admin') {
-      return res.status(403).json({ message: 'Forbidden' });
+
+    const commissionObj = commission.toObject();
+    const processedCommission = {
+      ...commissionObj,
+      user: {
+        _id: commissionObj.user._id,
+        username: commissionObj.user.username,
+        avatar: commissionObj.user.avatar,
+        bio: commissionObj.user.bio,
+        email: commissionObj.user.email
+      }
+    };
+
+    res.json({ commission: processedCommission });
+  } catch (error) {
+    console.error('Error fetching commission:', error);
+    res.status(500).json({ message: 'Error fetching commission' });
+  }
+});
+
+// Update commission
+router.put('/:id', requireAuth(), async (req, res) => {
+  try {
+    const commission = await Commission.findOne({ 
+      _id: req.params.id, 
+      user: req.auth.userId 
+    });
+
+    if (!commission) {
+      return res.status(404).json({ message: 'Commission not found or unauthorized' });
     }
-    Object.assign(commission, req.body);
-    await commission.save();
-    res.json(commission);
-    console.log('=== UPDATE COMMISSION SUCCESS ===');
-  } catch (err) {
-    console.error('=== UPDATE COMMISSION ERROR ===');
-    console.error('Error:', err.message);
-    res.status(500).json({ message: err.message });
+
+    const updatedCommission = await Commission.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true }
+    );
+
+    res.json({ 
+      message: 'Commission updated successfully',
+      commission: updatedCommission 
+    });
+  } catch (error) {
+    console.error('Error updating commission:', error);
+    res.status(500).json({ message: 'Error updating commission' });
   }
 });
 
@@ -294,158 +233,90 @@ router.delete('/:id', requireAuth(), async (req, res) => {
   }
 });
 
-// Đặt commission (tạo order)
+// Create order for commission
 router.post('/:id/order', requireAuth(), async (req, res) => {
-  console.log('=== CREATE ORDER FOR COMMISSION ===');
-  console.log('Commission ID:', req.params.id);
-  console.log('User ID:', req.auth.userId);
-  console.log('Request body:', req.body);
-  
   try {
-    // Kiểm tra user có Facebook link không
-    const user = await User.findOne({ clerkId: req.auth.userId });
+    const user = await User.findById(req.auth.userId);
     if (!user) {
-      console.log('User not found');
       return res.status(404).json({ message: 'User not found' });
     }
-    
-    if (!user.facebook || user.facebook.trim() === '') {
-      console.log('User does not have Facebook link');
-      return res.status(400).json({ 
-        message: 'Bạn vui lòng cập nhật Facebook trong phần hồ sơ để đặt commission',
-        error: 'FACEBOOK_REQUIRED'
-      });
+
+    if (!user.facebook) {
+      return res.status(400).json({ message: 'Bạn cần có link Facebook để đặt commission' });
     }
-    
+
     const commission = await Commission.findById(req.params.id);
-    console.log('Found commission:', commission ? {
-      id: commission._id,
-      title: commission.title,
-      status: commission.status,
-      user: commission.user
-    } : 'NOT FOUND');
     if (!commission) {
-      console.log('Commission not found');
       return res.status(404).json({ message: 'Commission not found' });
     }
-    
-    console.log('Checking if user is trying to order their own commission...');
-    console.log('Commission user:', commission.user);
-    console.log('Request user ID:', req.auth.userId);
-    console.log('Are they the same?', commission.user?.toString() === req.auth.userId?.toString());
-    
-    if (commission.user?.toString() === req.auth.userId?.toString()) {
-      console.log('User is trying to order their own commission - BAD REQUEST');
-      return res.status(400).json({ message: 'You cannot order your own commission' });
+
+    // Prevent users from ordering their own commission
+    if (commission.user.toString() === req.auth.userId) {
+      return res.status(400).json({ message: 'Bạn không thể đặt commission của chính mình' });
     }
-    
-    console.log('Commission status:', commission.status);
+
+    // Check if commission is open for orders
     if (commission.status !== 'open') {
-      console.log('Commission is not open for orders - BAD REQUEST');
-      return res.status(400).json({ message: 'This commission is not open for orders' });
+      return res.status(400).json({ message: 'Commission không mở để đặt hàng' });
     }
 
-    // Tạo order mới
-    console.log('Creating new order...');
+    // Create new order
     const order = new Order({
-      commission: commission._id,
-      buyer: req.auth.userId,
-      status: 'pending'
-    });
-    await order.save();
-    console.log('Order created successfully:', {
-      id: order._id,
-      commission: order.commission,
-      buyer: order.buyer,
-      status: order.status
+      commission: req.params.id,
+      user: req.auth.userId,
+      status: 'pending',
+      ...req.body
     });
 
-    // Cập nhật trạng thái commission
-    console.log('Updating commission status to pending...');
+    await order.save();
+
+    // Update commission status to pending
     commission.status = 'pending';
     await commission.save();
-    console.log('Commission status updated to pending');
 
-    console.log('=== CREATE ORDER SUCCESS ===');
-    res.status(201).json({ order, commission });
-    console.log('=== CREATE ORDER FOR COMMISSION SUCCESS ===');
-  } catch (err) {
-    console.error('=== CREATE ORDER ERROR ===');
-    console.error('Error message:', err.message);
-    console.error('Error stack:', err.stack);
-    console.error('Error name:', err.name);
-    console.error('Error code:', err.code);
-    res.status(500).json({ message: err.message });
+    res.status(201).json({ 
+      message: 'Order created successfully',
+      order 
+    });
+  } catch (error) {
+    console.error('Error creating order:', error);
+    res.status(500).json({ message: 'Error creating order' });
   }
 });
 
-// Xóa commission (chỉ cho phép owner và khi status là 'open' hoặc 'pending')
+// Delete commission
 router.delete('/:id', requireAuth(), async (req, res) => {
-  console.log('=== DELETE COMMISSION ===');
-  console.log('User ID:', req.auth.userId);
-  console.log('Commission ID:', req.params.id);
-  
   try {
-    const commission = await Commission.findById(req.params.id);
-    
-    if (!commission) {
-      return res.status(404).json({ error: 'Commission không tồn tại' });
-    }
-    
-    // Kiểm tra quyền sở hữu
-    if (commission.user !== req.auth.userId) {
-      return res.status(403).json({ error: 'Bạn không có quyền xóa commission này' });
-    }
-    
-    // Kiểm tra trạng thái - chỉ cho phép xóa khi 'open' hoặc 'pending'
-    if (commission.status !== 'open' && commission.status !== 'pending') {
-      return res.status(400).json({ 
-        error: 'Chỉ có thể xóa commission khi đang mở hoặc đang chờ xác nhận' 
-      });
-    }
-    
-    console.log('Commission can be deleted, status:', commission.status);
-    
-    // Thu thập tất cả URLs cần xóa từ Cloudinary
-    const urlsToDelete = [];
-    
-    // Thêm media-img URLs
-    if (commission['media-img'] && commission['media-img'].length > 0) {
-      urlsToDelete.push(...commission['media-img']);
-    }
-    
-    // Thêm media-vid URLs
-    if (commission['media-vid'] && commission['media-vid'].length > 0) {
-      urlsToDelete.push(...commission['media-vid']);
-    }
-    
-    console.log('URLs to delete from Cloudinary:', urlsToDelete);
-    
-    // Xóa files từ Cloudinary
-    let cloudinaryDeleteResults = [];
-    if (urlsToDelete.length > 0) {
-      cloudinaryDeleteResults = await deleteCloudinaryFiles(urlsToDelete);
-      console.log('Cloudinary delete results:', cloudinaryDeleteResults);
-    }
-    
-    // Xóa tất cả orders liên quan đến commission này
-    const deletedOrders = await Order.deleteMany({ commission_id: req.params.id });
-    console.log('Deleted orders:', deletedOrders.deletedCount);
-    
-    // Xóa commission khỏi database
-    await Commission.findByIdAndDelete(req.params.id);
-    console.log('Commission deleted successfully');
-    
-    res.json({ 
-      success: true, 
-      message: 'Xóa commission thành công',
-      deletedOrders: deletedOrders.deletedCount,
-      cloudinaryResults: cloudinaryDeleteResults
+    const commission = await Commission.findOne({ 
+      _id: req.params.id, 
+      user: req.auth.userId 
     });
-    
+
+    if (!commission) {
+      return res.status(404).json({ message: 'Commission not found or unauthorized' });
+    }
+
+    // Delete media files from Cloudinary
+    const mediaUrls = [
+      ...(commission['media-img'] || []),
+      ...(commission['media-vid'] || [])
+    ];
+
+    if (mediaUrls.length > 0) {
+      const deletePromises = mediaUrls.map(url => deleteFromCloudinary(url));
+      await Promise.all(deletePromises);
+    }
+
+    // Delete related orders
+    await Order.deleteMany({ commission: req.params.id });
+
+    // Delete commission
+    await Commission.findByIdAndDelete(req.params.id);
+
+    res.json({ message: 'Commission deleted successfully' });
   } catch (error) {
-    console.error('Delete commission error:', error);
-    res.status(500).json({ error: 'Lỗi khi xóa commission' });
+    console.error('Error deleting commission:', error);
+    res.status(500).json({ message: 'Error deleting commission' });
   }
 });
 
