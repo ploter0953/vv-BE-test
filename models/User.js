@@ -14,7 +14,9 @@ const userSchema = new mongoose.Schema({
   website: String,
   profile_email: String,
   vtuber_description: String,
-  artist_description: String
+  artist_description: String,
+  lastSeen: { type: Date, default: Date.now }, // Track online status
+  isOnline: { type: Boolean, default: false } // Real-time online status
 });
 
 module.exports = mongoose.model('User', userSchema); 
