@@ -126,6 +126,47 @@ router.get('/test/data', async (req, res) => {
   }
 });
 
+// Fix old commission data (convert string user to ObjectId)
+router.post('/fix-data', async (req, res) => {
+  try {
+    console.log('Fixing old commission data...');
+    
+    // Find commissions with string user field
+    const oldCommissions = await Commission.find({
+      user: { $type: 'string' }
+    });
+    
+    console.log(`Found ${oldCommissions.length} commissions with string user field`);
+    
+    let fixedCount = 0;
+    for (const commission of oldCommissions) {
+      try {
+        // Find user by clerkId
+        const user = await User.findOne({ clerkId: commission.user });
+        if (user) {
+          // Update commission to use user._id
+          await Commission.findByIdAndUpdate(commission._id, { user: user._id });
+          fixedCount++;
+          console.log(`Fixed commission ${commission._id}: ${commission.user} -> ${user._id}`);
+        } else {
+          console.log(`User not found for clerkId: ${commission.user}`);
+        }
+      } catch (error) {
+        console.error(`Error fixing commission ${commission._id}:`, error);
+      }
+    }
+    
+    res.json({ 
+      message: `Fixed ${fixedCount} commissions`,
+      totalOld: oldCommissions.length,
+      fixedCount 
+    });
+  } catch (error) {
+    console.error('Error fixing commission data:', error);
+    res.status(500).json({ error: 'Error fixing commission data: ' + error.message });
+  }
+});
+
 // Create commission
 router.post('/', requireAuth(), async (req, res) => {
   try {
@@ -233,6 +274,12 @@ router.get('/', async (req, res) => {
     if (commissions.length > 0) {
       const sampleCommission = commissions[0].toObject();
       console.log('Sample commission user data:', sampleCommission.user);
+      console.log('Sample commission raw data:', {
+        _id: sampleCommission._id,
+        user: sampleCommission.user,
+        userType: typeof sampleCommission.user,
+        userIsObject: sampleCommission.user && typeof sampleCommission.user === 'object'
+      });
     }
 
     const processedCommissions = commissions.map(commission => {

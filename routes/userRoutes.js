@@ -61,17 +61,27 @@ router.get('/:id/commissions', async (req, res) => {
     user = await User.findById(id);
   }
   if (!user) return res.status(404).json({ message: 'User not found' });
-  const commissions = await require('../models/Commission').find({ user: user.clerkId });
+  const commissions = await require('../models/Commission').find({ user: user._id });
   res.json({ commissions });
 });
 
-// Lấy user theo id (MongoDB ObjectId)
+// Lấy user theo id (hỗ trợ cả ObjectId và ClerkId)
 router.get('/:id', async (req, res) => {
-  if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
-    return res.status(400).json({ message: 'Invalid user id' });
-  }
+  const { id } = req.params;
+  let user;
+  const mongoose = require('mongoose');
+  
   try {
-    const user = await User.findById(req.params.id);
+    if (id.startsWith('user_')) {
+      // Clerk ID
+      user = await User.findOne({ clerkId: id });
+    } else if (mongoose.Types.ObjectId.isValid(id)) {
+      // MongoDB ObjectId
+      user = await User.findById(id);
+    } else {
+      return res.status(400).json({ message: 'Invalid user id' });
+    }
+    
     if (!user) return res.status(404).json({ message: 'User not found' });
     res.json({ user });
   } catch (err) {
