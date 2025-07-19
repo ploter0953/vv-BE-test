@@ -120,7 +120,10 @@ router.post('/clerk-sync-test', async (req, res) => {
       website: '',
       profile_email: '',
       vtuber_description: '',
-      artist_description: ''
+      artist_description: '',
+      twitch: '',
+      youtube: '',
+      tiktok: ''
     };
     
     user = await User.create(newUserObj);
@@ -137,10 +140,30 @@ router.post('/clerk-sync-test', async (req, res) => {
 // Update user online status
 router.post('/online', requireAuth(), async (req, res) => {
   try {
-    await User.findByIdAndUpdate(req.auth.userId, {
+    // Get user ID from Clerk auth or fallback
+    const userId = req.auth?.userId || req.auth?.user?.id;
+    
+    if (!userId) {
+      console.error('No user ID found in auth context');
+      return res.status(401).json({ message: 'User not authenticated' });
+    }
+
+    // Try to find user by Clerk ID first, then by MongoDB ID
+    let user = await User.findOne({ clerkId: userId });
+    if (!user) {
+      user = await User.findById(userId);
+    }
+    
+    if (!user) {
+      console.error('User not found for ID:', userId);
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    await User.findByIdAndUpdate(user._id, {
       isOnline: true,
       lastSeen: new Date()
     });
+    
     res.json({ message: 'Online status updated' });
   } catch (error) {
     console.error('Error updating online status:', error);
@@ -151,10 +174,30 @@ router.post('/online', requireAuth(), async (req, res) => {
 // Update user offline status
 router.post('/offline', requireAuth(), async (req, res) => {
   try {
-    await User.findByIdAndUpdate(req.auth.userId, {
+    // Get user ID from Clerk auth or fallback
+    const userId = req.auth?.userId || req.auth?.user?.id;
+    
+    if (!userId) {
+      console.error('No user ID found in auth context');
+      return res.status(401).json({ message: 'User not authenticated' });
+    }
+
+    // Try to find user by Clerk ID first, then by MongoDB ID
+    let user = await User.findOne({ clerkId: userId });
+    if (!user) {
+      user = await User.findById(userId);
+    }
+    
+    if (!user) {
+      console.error('User not found for ID:', userId);
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    await User.findByIdAndUpdate(user._id, {
       isOnline: false,
       lastSeen: new Date()
     });
+    
     res.json({ message: 'Offline status updated' });
   } catch (error) {
     console.error('Error updating offline status:', error);

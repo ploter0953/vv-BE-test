@@ -15,6 +15,9 @@ const userSchema = new mongoose.Schema({
   profile_email: String,
   vtuber_description: String,
   artist_description: String,
+  twitch: String,
+  youtube: String,
+  tiktok: String,
   lastSeen: { type: Date, default: Date.now }, // Track online status
   isOnline: { type: Boolean, default: false } // Real-time online status
 });
