@@ -2,7 +2,9 @@ const mongoose = require('mongoose');
 
 const orderSchema = new mongoose.Schema({
   commission: { type: mongoose.Schema.Types.ObjectId, ref: 'Commission', required: true },
-  buyer: { type: String, required: true }, // ClerkId of the customer
+  customer: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true }, // MongoDB ObjectId of the customer
+  artist: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true }, // MongoDB ObjectId of the artist
+  buyer: { type: String, required: true }, // ClerkId of the customer (keep for backward compatibility)
   status: { 
     type: String, 
     enum: [

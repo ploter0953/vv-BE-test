@@ -4,6 +4,7 @@ const User = require('../models/User');
 const { requireAuth } = require('@clerk/express');
 const Order = require('../models/Order'); // Đảm bảo đã require model Order
 const cloudinary = require('cloudinary').v2;
+const mongoose = require('mongoose'); // Added for MongoDB connection check
 
 const router = express.Router();
 
@@ -60,6 +61,12 @@ async function deleteCloudinaryFiles(urls) {
 // Delete image from Cloudinary
 async function deleteFromCloudinary(publicId) {
   try {
+    // Check if Cloudinary is configured
+    if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+      console.log('Cloudinary not configured, skipping delete');
+      return null;
+    }
+    
     const result = await cloudinary.uploader.destroy(publicId);
     return result;
   } catch (error) {
@@ -71,11 +78,40 @@ async function deleteFromCloudinary(publicId) {
 // Use requireAuth() for all protected routes:
 // router.post('/', requireAuth(), ...)
 
+// Test endpoint
+router.get('/test', (req, res) => {
+  res.json({ 
+    message: 'Commission routes are working!',
+    timestamp: new Date().toISOString(),
+    mongodbState: mongoose.connection.readyState
+  });
+});
+
 // Create commission
 router.post('/', requireAuth(), async (req, res) => {
   try {
-    const user = await User.findById(req.auth.userId);
+    // Check MongoDB connection
+    if (mongoose.connection.readyState !== 1) {
+      console.error('MongoDB not connected. ReadyState:', mongoose.connection.readyState);
+      return res.status(500).json({ message: 'Database connection error' });
+    }
+
+    // Get user ID from Clerk auth or fallback
+    const userId = req.auth?.userId || req.auth?.user?.id;
+    
+    if (!userId) {
+      console.error('No user ID found in auth context');
+      return res.status(401).json({ message: 'User not authenticated' });
+    }
+
+    // Try to find user by Clerk ID first, then by MongoDB ID
+    let user = await User.findOne({ clerkId: userId });
     if (!user) {
+      user = await User.findById(userId);
+    }
+    
+    if (!user) {
+      console.error('User not found for ID:', userId);
       return res.status(404).json({ message: 'User not found' });
     }
 
@@ -99,7 +135,7 @@ router.post('/', requireAuth(), async (req, res) => {
 
     // Create commission object
     const commission = new Commission({
-      user: req.auth.userId,
+      user: user._id, // Use MongoDB ObjectId
       title,
       description,
       type,
@@ -121,13 +157,19 @@ router.post('/', requireAuth(), async (req, res) => {
     });
   } catch (error) {
     console.error('Error creating commission:', error);
-    res.status(500).json({ message: 'Error creating commission' });
+    res.status(500).json({ message: 'Error creating commission', error: error.message });
   }
 });
 
 // Get all commissions
 router.get('/', async (req, res) => {
   try {
+    // Check MongoDB connection
+    if (mongoose.connection.readyState !== 1) {
+      console.error('MongoDB not connected. ReadyState:', mongoose.connection.readyState);
+      return res.status(500).json({ message: 'Database connection error' });
+    }
+
     const commissions = await Commission.find()
       .populate('user', 'username avatar bio')
       .sort({ createdAt: -1 });
@@ -148,13 +190,19 @@ router.get('/', async (req, res) => {
     res.json({ commissions: processedCommissions });
   } catch (error) {
     console.error('Error fetching commissions:', error);
-    res.status(500).json({ message: 'Error fetching commissions' });
+    res.status(500).json({ message: 'Error fetching commissions', error: error.message });
   }
 });
 
 // Get single commission
 router.get('/:id', async (req, res) => {
   try {
+    // Check MongoDB connection
+    if (mongoose.connection.readyState !== 1) {
+      console.error('MongoDB not connected. ReadyState:', mongoose.connection.readyState);
+      return res.status(500).json({ message: 'Database connection error' });
+    }
+
     const commission = await Commission.findById(req.params.id)
       .populate('user', 'username avatar bio email');
 
@@ -177,16 +225,41 @@ router.get('/:id', async (req, res) => {
     res.json({ commission: processedCommission });
   } catch (error) {
     console.error('Error fetching commission:', error);
-    res.status(500).json({ message: 'Error fetching commission' });
+    res.status(500).json({ message: 'Error fetching commission', error: error.message });
   }
 });
 
 // Update commission
 router.put('/:id', requireAuth(), async (req, res) => {
   try {
+    // Check MongoDB connection
+    if (mongoose.connection.readyState !== 1) {
+      console.error('MongoDB not connected. ReadyState:', mongoose.connection.readyState);
+      return res.status(500).json({ message: 'Database connection error' });
+    }
+
+    // Get user ID from Clerk auth or fallback
+    const userId = req.auth?.userId || req.auth?.user?.id;
+    
+    if (!userId) {
+      console.error('No user ID found in auth context');
+      return res.status(401).json({ message: 'User not authenticated' });
+    }
+
+    // Try to find user by Clerk ID first, then by MongoDB ID
+    let user = await User.findOne({ clerkId: userId });
+    if (!user) {
+      user = await User.findById(userId);
+    }
+    
+    if (!user) {
+      console.error('User not found for ID:', userId);
+      return res.status(404).json({ message: 'User not found' });
+    }
+
     const commission = await Commission.findOne({ 
       _id: req.params.id, 
-      user: req.auth.userId 
+      user: user._id // Use MongoDB ObjectId
     });
 
     if (!commission) {
@@ -205,95 +278,46 @@ router.put('/:id', requireAuth(), async (req, res) => {
     });
   } catch (error) {
     console.error('Error updating commission:', error);
-    res.status(500).json({ message: 'Error updating commission' });
+    res.status(500).json({ message: 'Error updating commission', error: error.message });
   }
 });
 
 // Xóa commission
 router.delete('/:id', requireAuth(), async (req, res) => {
   console.log('=== DELETE COMMISSION ===');
-  console.log('User ID:', req.auth.userId, 'CommissionId:', req.params.id);
   try {
+    // Check MongoDB connection
+    if (mongoose.connection.readyState !== 1) {
+      console.error('MongoDB not connected. ReadyState:', mongoose.connection.readyState);
+      return res.status(500).json({ message: 'Database connection error' });
+    }
+
+    // Get user ID from Clerk auth or fallback
+    const userId = req.auth?.userId || req.auth?.user?.id;
+    
+    if (!userId) {
+      console.error('No user ID found in auth context');
+      return res.status(401).json({ message: 'User not authenticated' });
+    }
+
+    // Try to find user by Clerk ID first, then by MongoDB ID
+    let user = await User.findOne({ clerkId: userId });
+    if (!user) {
+      user = await User.findById(userId);
+    }
+    
+    if (!user) {
+      console.error('User not found for ID:', userId);
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    console.log('User ID:', user._id, 'CommissionId:', req.params.id);
+    
     const commission = await Commission.findById(req.params.id);
     if (!commission) return res.status(404).json({ message: 'Not found' });
-    const user = await User.findOne({ clerkId: req.auth.userId });
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-    if (commission.user.toString() !== req.auth.userId && user.role !== 'admin') {
+    
+    if (commission.user.toString() !== user._id.toString() && user.role !== 'admin') {
       return res.status(403).json({ message: 'Forbidden' });
-    }
-    await commission.deleteOne();
-    res.json({ message: 'Commission deleted' });
-    console.log('=== DELETE COMMISSION SUCCESS ===');
-  } catch (err) {
-    console.error('=== DELETE COMMISSION ERROR ===');
-    console.error('Error:', err.message);
-    res.status(500).json({ message: err.message });
-  }
-});
-
-// Create order for commission
-router.post('/:id/order', requireAuth(), async (req, res) => {
-  try {
-    const user = await User.findById(req.auth.userId);
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-
-    if (!user.facebook) {
-      return res.status(400).json({ message: 'Bạn cần có link Facebook để đặt commission' });
-    }
-
-    const commission = await Commission.findById(req.params.id);
-    if (!commission) {
-      return res.status(404).json({ message: 'Commission not found' });
-    }
-
-    // Prevent users from ordering their own commission
-    if (commission.user.toString() === req.auth.userId) {
-      return res.status(400).json({ message: 'Bạn không thể đặt commission của chính mình' });
-    }
-
-    // Check if commission is open for orders
-    if (commission.status !== 'open') {
-      return res.status(400).json({ message: 'Commission không mở để đặt hàng' });
-    }
-
-    // Create new order
-    const order = new Order({
-      commission: req.params.id,
-      user: req.auth.userId,
-      status: 'pending',
-      ...req.body
-    });
-
-    await order.save();
-
-    // Update commission status to pending
-    commission.status = 'pending';
-    await commission.save();
-
-    res.status(201).json({ 
-      message: 'Order created successfully',
-      order 
-    });
-  } catch (error) {
-    console.error('Error creating order:', error);
-    res.status(500).json({ message: 'Error creating order' });
-  }
-});
-
-// Delete commission
-router.delete('/:id', requireAuth(), async (req, res) => {
-  try {
-    const commission = await Commission.findOne({ 
-      _id: req.params.id, 
-      user: req.auth.userId 
-    });
-
-    if (!commission) {
-      return res.status(404).json({ message: 'Commission not found or unauthorized' });
     }
 
     // Delete media files from Cloudinary
@@ -309,14 +333,91 @@ router.delete('/:id', requireAuth(), async (req, res) => {
 
     // Delete related orders
     await Order.deleteMany({ commission: req.params.id });
+    
+    await commission.deleteOne();
+    res.json({ message: 'Commission deleted' });
+    console.log('=== DELETE COMMISSION SUCCESS ===');
+  } catch (err) {
+    console.error('=== DELETE COMMISSION ERROR ===');
+    console.error('Error:', err.message);
+    res.status(500).json({ message: err.message });
+  }
+});
 
-    // Delete commission
-    await Commission.findByIdAndDelete(req.params.id);
+// Create order for commission
+router.post('/:id/order', requireAuth(), async (req, res) => {
+  try {
+    // Check MongoDB connection
+    if (mongoose.connection.readyState !== 1) {
+      console.error('MongoDB not connected. ReadyState:', mongoose.connection.readyState);
+      return res.status(500).json({ message: 'Database connection error' });
+    }
 
-    res.json({ message: 'Commission deleted successfully' });
+    // Get user ID from Clerk auth or fallback
+    const userId = req.auth?.userId || req.auth?.user?.id;
+    
+    if (!userId) {
+      console.error('No user ID found in auth context');
+      return res.status(401).json({ message: 'User not authenticated' });
+    }
+
+    // Try to find user by Clerk ID first, then by MongoDB ID
+    let user = await User.findOne({ clerkId: userId });
+    if (!user) {
+      user = await User.findById(userId);
+    }
+    
+    if (!user) {
+      console.error('User not found for ID:', userId);
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    if (!user.facebook) {
+      return res.status(400).json({ message: 'Bạn cần có link Facebook để đặt commission' });
+    }
+
+    const commission = await Commission.findById(req.params.id);
+    if (!commission) {
+      return res.status(404).json({ message: 'Commission not found' });
+    }
+
+    // Prevent users from ordering their own commission
+    if (commission.user.toString() === user._id.toString()) {
+      return res.status(400).json({ message: 'Bạn không thể đặt commission của chính mình' });
+    }
+
+    // Check if commission is open for orders
+    if (commission.status !== 'open') {
+      return res.status(400).json({ message: 'Commission không còn nhận đơn hàng' });
+    }
+
+    // Check if user already has an order for this commission
+    const existingOrder = await Order.findOne({
+      commission: req.params.id,
+      customer: user._id
+    });
+
+    if (existingOrder) {
+      return res.status(400).json({ message: 'Bạn đã đặt commission này rồi' });
+    }
+
+    // Create order
+    const order = new Order({
+      commission: req.params.id,
+      customer: user._id,
+      artist: commission.user,
+      status: 'pending'
+    });
+
+    await order.save();
+
+    res.status(201).json({ 
+      message: 'Order created successfully',
+      order 
+    });
   } catch (error) {
-    console.error('Error deleting commission:', error);
-    res.status(500).json({ message: 'Error deleting commission' });
+    console.error('Error creating order:', error);
+    res.status(500).json({ message: 'Error creating order', error: error.message });
   }
 });
 
