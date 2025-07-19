@@ -11,9 +11,25 @@ router.get('/', async (req, res) => {
     const { username } = req.query;
     if (username) {
       console.log('[DEBUG] Tìm kiếm user:', username);
-      // Tìm user theo username, không phân biệt hoa thường, partial match
-      const users = await User.find({ username: { $regex: username, $options: 'i' } });
+      
+      // Tìm kiếm với nhiều điều kiện khác nhau
+      const searchQuery = {
+        $or: [
+          // Tìm theo username (exact match hoặc partial match)
+          { username: { $regex: username, $options: 'i' } },
+          // Tìm theo email (nếu có)
+          { email: { $regex: username, $options: 'i' } },
+          // Tìm theo profile_email (nếu có)
+          { profile_email: { $regex: username, $options: 'i' } },
+          // Tìm theo bio (nếu có)
+          { bio: { $regex: username, $options: 'i' } }
+        ]
+      };
+      
+      const users = await User.find(searchQuery);
       console.log('[DEBUG] Số kết quả:', users.length);
+      console.log('[DEBUG] Kết quả tìm kiếm:', users.map(u => ({ username: u.username, email: u.email })));
+      
       return res.json({ users });
     }
     // Nếu không có query, trả về tất cả user (hoặc có thể trả về rỗng)
