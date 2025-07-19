@@ -39,7 +39,16 @@ router.get('/', requireAuth(), async (req, res) => {
       console.log('Fetching artist orders...');
       console.log('Looking for commissions with user:', req.auth.userId);
 
-      const commissions = await Commission.find({ user: req.auth.userId });
+      // First find the user by clerkId to get MongoDB ObjectId
+      const user = await User.findOne({ clerkId: req.auth.userId });
+      if (!user) {
+        console.log('User not found for clerkId:', req.auth.userId);
+        return res.json({ orders: [] });
+      }
+
+      console.log('Found user:', { id: user._id, clerkId: user.clerkId, username: user.username });
+
+      const commissions = await Commission.find({ user: user._id });
       console.log('User commissions found:', commissions.length);
       console.log('Commission details:', commissions.map(c => ({
         id: c._id,
