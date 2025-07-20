@@ -622,7 +622,7 @@ app.get('/api/users/:id', async (req, res) => {
 // Update user profile
 app.put('/api/users/:id', requireAuth(), async (req, res) => {
   const userId = req.params.id;
-  const { avatar, bio, facebook, zalo, phone, website, profile_email, vtuber_description, artist_description, description } = req.body;
+  const { avatar, bio, facebook, zalo, phone, website, profile_email, vtuber_description, artist_description, description, youtube, twitch, tiktok } = req.body;
 
 
 
@@ -665,7 +665,10 @@ app.put('/api/users/:id', requireAuth(), async (req, res) => {
       website: website || user.website,
       profile_email: profile_email || user.profile_email,
       vtuber_description: vtuber_description || user.vtuber_description,
-      artist_description: artist_description || user.artist_description
+      artist_description: artist_description || user.artist_description,
+      youtube: youtube || user.youtube,
+      twitch: twitch || user.twitch,
+      tiktok: tiktok || user.tiktok
     };
 
     // Ghi log chi tiết trước khi cập nhật
