@@ -203,8 +203,15 @@ router.post('/:id/artist-reject', requireAuth(), async (req, res) => {
   try {
     const order = await Order.findById(req.params.id).populate('commission');
     if (!order) return res.status(404).json({ message: 'Order not found' });
+    
+    // Find user by clerkId to get ObjectId
+    const currentUser = await User.findOne({ clerkId: req.auth.userId });
+    if (!currentUser) {
+      return res.status(401).json({ message: 'User not found' });
+    }
+    
     // Chỉ artist (chủ commission) mới được từ chối
-    if (!order.commission || order.commission.user.toString() !== req.auth.userId) {
+    if (!order.commission || order.commission.user.toString() !== currentUser._id.toString()) {
       return res.status(403).json({ message: 'Forbidden' });
     }
     // Cho phép từ chối khi order ở pending, confirmed, in_progress, hoặc customer_rejected
