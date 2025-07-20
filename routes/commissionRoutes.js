@@ -527,6 +527,10 @@ router.post('/:id/order', requireAuth(), async (req, res) => {
 
     await order.save();
 
+    // Update commission status to pending when order is created
+    commission.status = 'pending';
+    await commission.save();
+
     res.status(201).json({ 
       message: 'Order created successfully',
       order 
