@@ -12,11 +12,23 @@ router.post('/', requireAuth(), async (req, res) => {
     const { commissionId } = req.body;
     const commission = await Commission.findById(commissionId);
     if (!commission) return res.status(404).json({ message: 'Commission not found' });
+    
+    // Check if commission is open
+    if (commission.status !== 'open') {
+      return res.status(400).json({ message: 'Commission is not available for ordering' });
+    }
+    
+    // Create the order
     const order = new Order({
       commission: commissionId,
       buyer: req.auth.userId,
     });
     await order.save();
+    
+    // Update commission status to pending when first order is created
+    commission.status = 'pending';
+    await commission.save();
+    
     res.status(201).json(order);
   } catch (err) {
     res.status(500).json({ message: err.message });
