@@ -315,7 +315,8 @@ router.get('/:id', async (req, res) => {
     }
 
     const commission = await Commission.findById(req.params.id)
-      .populate('user', 'username avatar bio email');
+      .populate('user', 'username avatar bio email')
+      .populate('feedback.user', 'username avatar');
 
     if (!commission) {
       return res.status(404).json({ message: 'Commission not found' });

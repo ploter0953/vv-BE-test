@@ -860,6 +860,25 @@ app.put('/api/orders/:id/customer-confirm', requireAuth(), async (req, res) => {
     await order.save();
     console.log('Order status updated to completed');
     
+    // Add feedback if provided
+    const { feedback } = req.body;
+    if (feedback && feedback.trim()) {
+      // Find customer user by clerkId
+      const customer = await User.findOne({ clerkId: req.auth.userId });
+      if (customer) {
+        const commission = await Commission.findById(order.commission._id);
+        if (commission) {
+          commission.feedback.push({
+            user: customer._id,
+            comment: feedback.trim().substring(0, 200), // Ensure max 200 characters
+            createdAt: new Date()
+          });
+          await commission.save();
+          console.log('Feedback added to commission');
+        }
+      }
+    }
+    
     // Update commission status
     const commission = order.commission;
     commission.status = 'completed';

@@ -24,6 +24,11 @@ const commissionSchema = new mongoose.Schema({
     default: 'open' 
   },
   user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  feedback: [{ 
+    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    comment: { type: String, required: true, maxlength: 200 },
+    createdAt: { type: Date, default: Date.now }
+  }],
 }, { timestamps: true });
 
 module.exports = mongoose.model('Commission', commissionSchema); 
