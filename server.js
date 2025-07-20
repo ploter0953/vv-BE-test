@@ -991,76 +991,7 @@ app.put('/api/orders/:id/reject', requireAuth(), async (req, res) => {
   }
 });
 
-// Artist rejects order
-app.put('/api/orders/:id/artist-reject', requireAuth(), async (req, res) => {
-  console.log('=== ARTIST REJECT ORDER ===');
-  console.log('Order ID:', req.params.id);
-  console.log('User ID:', req.auth.userId);
-  console.log('Request body:', req.body);
-  
-  try {
-    const { rejection_reason } = req.body;
-    console.log('Rejection reason:', rejection_reason);
-    
-    const order = await Order.findById(req.params.id).populate('commission');
-    console.log('Found order:', order ? {
-      id: order._id,
-      status: order.status,
-      buyer: order.buyer,
-      commission_user: order.commission?.user
-    } : 'NOT FOUND');   
-    if (!order) {
-      console.log('Order not found');
-      return res.status(404).json({ error: 'Đơn hàng không tồn tại' });
-    }
-    
-    // Check if user is the commission owner (artist)
-    const isArtist = order.commission.user === req.auth.userId;
-    console.log('Is user the artist?', isArtist);
-    console.log('Order commission user:', order.commission.user);
-    console.log('Request user ID:', req.auth.userId);
-    
-    if (!isArtist) {
-      console.log('User is not the artist - FORBIDDEN');
-      return res.status(403).json({ error: 'Không có quyền từ chối đơn hàng này' });
-    }
-    
-    console.log('Current order status:', order.status);
-    // Allow artist to reject in pending, confirmed, in_progress, waiting_customer_confirmation, or customer_rejected
-    if (!["pending", "confirmed", "in_progress", "waiting_customer_confirmation", "customer_rejected"].includes(order.status)) {
-      console.log('Order status not allowed for artist rejection - BAD REQUEST');
-      return res.status(400).json({ error: 'Không thể từ chối đơn hàng ở trạng thái này' });
-    }
-    
-    order.status = 'artist_rejected';
-    order.rejection_reason = rejection_reason || 'Artist từ chối thực hiện đơn hàng';
-    await order.save();
-    console.log('Order status updated to artist_rejected');
-    console.log('Rejection reason saved:', order.rejection_reason);
-    
-    // Check if commission should be reopened
-    const activeOrders = await Order.countDocuments({ 
-      commission: order.commission._id, 
-      status: { $in: ['pending', 'confirmed', 'waiting_customer_confirmation', 'customer_rejected'] } 
-    });
-    console.log('Active orders count:', activeOrders);
-    
-    if (activeOrders === 0) {
-      const commission = order.commission;
-      commission.status = 'open';
-      await commission.save();
-      console.log('Commission status updated to open (no active orders)');
-    }
-    
-    console.log('=== ARTIST REJECT ORDER SUCCESS ===');
-    res.json({ message: 'Đã từ chối đơn hàng. Commission sẽ được mở lại nếu không còn đơn hàng nào.' });
-  } catch (error) {
-    console.error('=== ARTIST REJECT ORDER ERROR ===');
-    console.error('Error:', error.message);
-    console.error('Stack:', error.stack);
-    res.status(500).json({ error: 'Lỗi server' });
-  }
-});
+
 
 // Auto-cancel pending orders after 7 days (optional endpoint for cleanup)
 app.put('/api/orders/auto-cancel-pending', async (req, res) => {

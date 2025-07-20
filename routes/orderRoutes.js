@@ -204,7 +204,7 @@ router.post('/:id/artist-reject', requireAuth(), async (req, res) => {
     const order = await Order.findById(req.params.id).populate('commission');
     if (!order) return res.status(404).json({ message: 'Order not found' });
     // Chỉ artist (chủ commission) mới được từ chối
-    if (!order.commission || order.commission.user !== req.auth.userId) {
+    if (!order.commission || order.commission.user.toString() !== req.auth.userId) {
       return res.status(403).json({ message: 'Forbidden' });
     }
     // Cho phép từ chối khi order ở pending, confirmed, in_progress, hoặc customer_rejected
@@ -214,15 +214,22 @@ router.post('/:id/artist-reject', requireAuth(), async (req, res) => {
     order.status = 'artist_rejected';
     order.rejection_reason = req.body.reason || '';
     await order.save();
-    // Cập nhật commission về open
+    
+    // Check if commission should be reopened (only if no more active orders)
+    const activeOrders = await Order.countDocuments({ 
+      commission: order.commission._id, 
+      status: { $in: ['pending', 'confirmed', 'in_progress', 'waiting_customer_confirmation', 'customer_rejected'] } 
+    });
+    
     let commission = null;
-    if (order.commission && order.commission._id) {
+    if (activeOrders === 0 && order.commission && order.commission._id) {
       commission = await Commission.findById(order.commission._id);
       if (commission) {
         commission.status = 'open';
         await commission.save();
       }
     }
+    
     res.json({ message: 'Order artist rejected and commission reopened', order, commission });
   } catch (err) {
     res.status(500).json({ message: err.message });

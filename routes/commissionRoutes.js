@@ -504,10 +504,11 @@ router.post('/:id/order', requireAuth(), async (req, res) => {
       return res.status(400).json({ message: 'Commission không còn nhận đơn hàng' });
     }
 
-    // Check if user already has an order for this commission
+    // Check if user already has an active order for this commission (exclude rejected orders)
     const existingOrder = await Order.findOne({
       commission: req.params.id,
-      customer: user._id
+      customer: user._id,
+      status: { $nin: ['artist_rejected', 'customer_rejected', 'completed', 'cancelled'] }
     });
 
     if (existingOrder) {
