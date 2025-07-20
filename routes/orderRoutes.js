@@ -90,8 +90,25 @@ router.get('/', requireAuth(), async (req, res) => {
       const orderObj = order.toObject();
       // customer_id
       orderObj.customer_id = userMap[order.buyer] || null;
-      // artist_id (user của commission)
-      orderObj.artist_id = order.commission && userMap[order.commission.user] ? userMap[order.commission.user] : null;
+      
+      // artist_id (user của commission) - need to handle both ObjectId and clerkId
+      let artistId = null;
+      if (order.commission) {
+        // If commission.user is populated object, get clerkId
+        if (order.commission.user && typeof order.commission.user === 'object' && order.commission.user.clerkId) {
+          artistId = userMap[order.commission.user.clerkId];
+        } else if (order.commission.user && typeof order.commission.user === 'string') {
+          // If it's clerkId string
+          artistId = userMap[order.commission.user];
+        } else {
+          // If it's ObjectId, find user by ObjectId
+          const artistUser = users.find(u => u._id.toString() === order.commission.user.toString());
+          if (artistUser) {
+            artistId = artistUser;
+          }
+        }
+      }
+      orderObj.artist_id = artistId;
 
       console.log('Processed order:', {
         id: orderObj._id,

@@ -710,11 +710,17 @@ app.put('/api/orders/:id/confirm', requireAuth(), async (req, res) => {
       return res.status(404).json({ error: 'Đơn hàng không tồn tại' });
     }
     
+    // Find user by clerkId to get ObjectId
+    const currentUser = await User.findOne({ clerkId: req.auth.userId });
+    if (!currentUser) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+    
     // Check if user is the commission owner (artist)
-    const isArtist = order.commission.user === req.auth.userId;
+    const isArtist = order.commission.user.toString() === currentUser._id.toString();
     console.log('Is user the artist?', isArtist);
     console.log('Order commission user:', order.commission.user);
-    console.log('Request user ID:', req.auth.userId);
+    console.log('Current user ObjectId:', currentUser._id);
     
     if (!isArtist) {
       console.log('User is not the artist - FORBIDDEN');
@@ -768,11 +774,17 @@ app.put('/api/orders/:id/complete', requireAuth(), async (req, res) => {
       return res.status(404).json({ error: 'Đơn hàng không tồn tại' });
     }
     
+    // Find user by clerkId to get ObjectId
+    const currentUser = await User.findOne({ clerkId: req.auth.userId });
+    if (!currentUser) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+    
     // Check if user is the commission owner (artist)
-    const isArtist = order.commission.user === req.auth.userId;
+    const isArtist = order.commission.user.toString() === currentUser._id.toString();
     console.log('Is user the artist?', isArtist);
     console.log('Order commission user:', order.commission.user);
-    console.log('Request user ID:', req.auth.userId);
+    console.log('Current user ObjectId:', currentUser._id);
     
     if (!isArtist) {
       console.log('User is not the artist - FORBIDDEN');
