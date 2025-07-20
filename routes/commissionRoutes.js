@@ -37,10 +37,8 @@ function extractPublicIdFromCloudinaryUrl(url) {
       publicId = publicId.replace(/\.[^/.]+$/, '');
     }
     
-    console.log(`Extracted public_id: ${publicId} from URL: ${url}`);
     return publicId;
   } catch (error) {
-    console.error('Error extracting public_id:', error);
     return null;
   }
 }
@@ -51,14 +49,11 @@ async function deleteCloudinaryFiles(urls) {
     try {
       const publicId = extractPublicIdFromCloudinaryUrl(url);
       if (publicId) {
-        console.log('Deleting from Cloudinary:', publicId);
         const result = await cloudinary.uploader.destroy(publicId);
-        console.log('Cloudinary delete result:', result);
         return { url, publicId, result };
       }
       return { url, publicId: null, result: 'no_public_id' };
     } catch (error) {
-      console.error('Error deleting from Cloudinary:', error);
       return { url, error: error.message };
     }
   });
@@ -71,7 +66,6 @@ async function deleteFromCloudinary(publicId) {
   try {
     // Check if Cloudinary is configured
     if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
-      console.log('Cloudinary not configured, skipping delete');
       return null;
     }
     
@@ -81,16 +75,12 @@ async function deleteFromCloudinary(publicId) {
       resourceType = 'video';
     }
     
-    console.log(`Deleting from Cloudinary: ${publicId} (resource_type: ${resourceType})`);
-    
     const result = await cloudinary.uploader.destroy(publicId, {
       resource_type: resourceType
     });
     
-    console.log('Cloudinary delete result:', result);
     return result;
   } catch (error) {
-    console.error('Error deleting from Cloudinary:', error);
     return null;
   }
 }
@@ -200,32 +190,18 @@ router.post('/', requireAuth(), async (req, res) => {
     const userId = req.auth?.userId || req.auth?.user?.id;
     
     if (!userId) {
-      console.error('No user ID found in auth context');
       return res.status(401).json({ message: 'User not authenticated' });
     }
 
-    console.log('Creating commission for user ID:', userId);
-
     // Try to find user by Clerk ID first, then by MongoDB ID
     let user = await User.findOne({ clerkId: userId });
-    console.log('User found by clerkId:', user ? user.username : 'Not found');
-    
     if (!user) {
       user = await User.findById(userId);
-      console.log('User found by MongoDB ID:', user ? user.username : 'Not found');
     }
     
     if (!user) {
-      console.error('User not found for ID:', userId);
       return res.status(404).json({ message: 'User not found' });
     }
-
-    console.log('User details:', {
-      _id: user._id,
-      clerkId: user.clerkId,
-      username: user.username,
-      email: user.email
-    });
 
     if (!user.facebook) {
       return res.status(400).json({ message: 'Bạn cần có link Facebook để tạo commission' });
@@ -245,14 +221,7 @@ router.post('/', requireAuth(), async (req, res) => {
       'media-vid': mediaVid
     } = req.body;
 
-    console.log('=== COMMISSION CREATION DEBUG ===');
-    console.log('Request body size:', JSON.stringify(req.body).length, 'characters');
-    console.log('Title:', title);
-    console.log('Description length:', description?.length || 0);
-    console.log('Media images count:', (mediaImg || []).length);
-    console.log('Media videos count:', (mediaVid || []).length);
-    console.log('Media images URLs:', mediaImg);
-    console.log('Media videos URLs:', mediaVid);
+
 
     // Create commission object
     const commission = new Commission({
@@ -270,13 +239,7 @@ router.post('/', requireAuth(), async (req, res) => {
       status: 'open'
     });
 
-    console.log('Commission object created, about to save...');
-    console.log('Commission user ID:', commission.user);
-    console.log('Commission media-img:', commission['media-img']);
-    console.log('Commission media-vid:', commission['media-vid']);
-    
     await commission.save();
-    console.log('=== COMMISSION SAVED SUCCESSFULLY ===');
 
     res.status(201).json({ 
       message: 'Commission created successfully',
@@ -339,7 +302,6 @@ router.get('/', async (req, res) => {
 
     res.json({ commissions: processedCommissions });
   } catch (error) {
-    console.error('Error fetching commissions:', error);
     res.status(500).json({ message: 'Error fetching commissions', error: error.message });
   }
 });
@@ -349,7 +311,6 @@ router.get('/:id', async (req, res) => {
   try {
     // Check MongoDB connection
     if (mongoose.connection.readyState !== 1) {
-      console.error('MongoDB not connected. ReadyState:', mongoose.connection.readyState);
       return res.status(500).json({ message: 'Database connection error' });
     }
 
@@ -444,11 +405,9 @@ router.put('/:id', requireAuth(), async (req, res) => {
 
 // Xóa commission
 router.delete('/:id', requireAuth(), async (req, res) => {
-  console.log('=== DELETE COMMISSION ===');
   try {
     // Check MongoDB connection
     if (mongoose.connection.readyState !== 1) {
-      console.error('MongoDB not connected. ReadyState:', mongoose.connection.readyState);
       return res.status(500).json({ message: 'Database connection error' });
     }
 
@@ -456,7 +415,6 @@ router.delete('/:id', requireAuth(), async (req, res) => {
     const userId = req.auth?.userId || req.auth?.user?.id;
     
     if (!userId) {
-      console.error('No user ID found in auth context');
       return res.status(401).json({ message: 'User not authenticated' });
     }
 
@@ -467,11 +425,8 @@ router.delete('/:id', requireAuth(), async (req, res) => {
     }
     
     if (!user) {
-      console.error('User not found for ID:', userId);
       return res.status(404).json({ message: 'User not found' });
     }
-
-    console.log('User ID:', user._id, 'CommissionId:', req.params.id);
     
     const commission = await Commission.findById(req.params.id);
     if (!commission) return res.status(404).json({ message: 'Not found' });
@@ -496,10 +451,7 @@ router.delete('/:id', requireAuth(), async (req, res) => {
     
     await commission.deleteOne();
     res.json({ message: 'Commission deleted' });
-    console.log('=== DELETE COMMISSION SUCCESS ===');
   } catch (err) {
-    console.error('=== DELETE COMMISSION ERROR ===');
-    console.error('Error:', err.message);
     res.status(500).json({ message: err.message });
   }
 });
@@ -507,9 +459,12 @@ router.delete('/:id', requireAuth(), async (req, res) => {
 // Create order for commission
 router.post('/:id/order', requireAuth(), async (req, res) => {
   try {
+    // Validate commission ID format
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: 'Invalid commission ID format' });
+    }
     // Check MongoDB connection
     if (mongoose.connection.readyState !== 1) {
-      console.error('MongoDB not connected. ReadyState:', mongoose.connection.readyState);
       return res.status(500).json({ message: 'Database connection error' });
     }
 
@@ -517,7 +472,6 @@ router.post('/:id/order', requireAuth(), async (req, res) => {
     const userId = req.auth?.userId || req.auth?.user?.id;
     
     if (!userId) {
-      console.error('No user ID found in auth context');
       return res.status(401).json({ message: 'User not authenticated' });
     }
 
@@ -528,7 +482,6 @@ router.post('/:id/order', requireAuth(), async (req, res) => {
     }
     
     if (!user) {
-      console.error('User not found for ID:', userId);
       return res.status(404).json({ message: 'User not found' });
     }
 
@@ -566,6 +519,7 @@ router.post('/:id/order', requireAuth(), async (req, res) => {
       commission: req.params.id,
       customer: user._id,
       artist: commission.user,
+      buyer: userId, // ClerkId of the customer (required field)
       status: 'pending'
     });
 
@@ -576,9 +530,9 @@ router.post('/:id/order', requireAuth(), async (req, res) => {
       order 
     });
   } catch (error) {
-    console.error('Error creating order:', error);
     res.status(500).json({ message: 'Error creating order', error: error.message });
   }
 });
+
 
 module.exports = router; 

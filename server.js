@@ -125,7 +125,7 @@ app.use((req, res, next) => {
 
 // Middleware to log requests for debugging
 app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path} - Origin: ${req.headers.origin || 'No origin'} - User-Agent: ${req.headers['user-agent']?.substring(0, 50) || 'No user-agent'}`);
+  // Silent request logging
   next();
 });
 
@@ -172,12 +172,10 @@ app.use(cors(corsOptions));
 app.use('/api', (req, res, next) => {
   // For upload endpoints, apply selective no-origin validation
   if (req.path.startsWith('/upload/')) {
-    console.log('Upload endpoint detected:', req.path);
     const origin = req.headers.origin;
     
     // For upload endpoints, only allow no-origin if it's from legitimate sources
     if (!origin) {
-      console.log('No origin for upload endpoint - allowing but will verify auth');
       // Still require authentication - no free access
       return next();
     }
@@ -185,7 +183,6 @@ app.use('/api', (req, res, next) => {
     // If there is an origin, it must be from allowed domains
     const allowedOrigins = getAllowedOrigins();
     if (!allowedOrigins.includes(origin)) {
-      console.log(`Upload endpoint: Origin ${origin} is NOT allowed - blocking request`);
       return res.status(403).json({
         error: 'Truy cập không được phép từ domain này',
         message: 'Upload chỉ được phép từ domain chính thức',
@@ -193,7 +190,6 @@ app.use('/api', (req, res, next) => {
       });
     }
     
-    console.log(`Upload endpoint: Origin ${origin} is allowed`);
     return next();
   }
   
@@ -230,7 +226,6 @@ app.use('/api', (req, res, next) => {
 app.use('/api', (req, res, next) => {
   // For upload endpoints, apply selective referer validation
   if (req.path.startsWith('/upload/')) {
-    console.log('Upload endpoint referer check:', req.path);
     const referer = req.headers.referer;
     
     // Skip referer check for OPTIONS requests (preflight)
@@ -245,16 +240,11 @@ app.use('/api', (req, res, next) => {
       const refererOrigin = refererUrl.origin;
       
       if (!allowedOrigins.includes(refererOrigin)) {
-        console.log(`Upload endpoint: Referer ${refererOrigin} is NOT allowed - blocking request`);
         return res.status(403).json({
           error: 'Truy cập không được phép từ domain này',
           message: 'Upload chỉ được phép từ domain chính thức'
         });
       }
-      
-      console.log(`Upload endpoint: Referer ${refererOrigin} is allowed`);
-    } else {
-      console.log('Upload endpoint: No referer header - allowing but will verify auth');
     }
     
     return next();
@@ -539,26 +529,14 @@ app.get('/api/health', (req, res) => {
 
 // Routes
 
-// Get all users (for artist profiles)
-app.get('/api/users', async (req, res) => {
-  try {
-    const users = await User.find({});
-    res.json({ users });
-  } catch (error) {
-    return res.status(500).json({ error: 'Lỗi server' });
-  }
-});
+// Get all users (for artist profiles) - Moved to userRoutes.js
+// This endpoint conflicts with search functionality in userRoutes.js
+// Removed to fix search functionality
 
 // Get users for voting (with optional badge filter) - MUST BE BEFORE /api/users/:id
 app.get('/api/users/vote', async (req, res) => {
   try {
-    console.log('--- /api/users/vote called ---');
-    console.log('Query params:', req.query);
-    console.log('Request headers:', req.headers);
-    
-    // Check if User model exists
-    console.log('User model exists:', !!User);
-    console.log('User model:', User);
+      // Silent vote endpoint
     
     const { badge } = req.query;
     let query = {};
@@ -590,18 +568,9 @@ app.get('/api/users/vote', async (req, res) => {
     const allUsers = await User.find({}).limit(1);
     console.log('Basic User.find() result:', allUsers.length, 'users found');
     
-    console.log('Executing main query...');
     const users = await User.find(query)
       .select('username avatar bio badges vtuber_description artist_description')
       .sort({ username: 1 });
-    
-    console.log(`Found ${users.length} users for voting`);
-    
-    if (users.length > 0) {
-      console.log('Sample user:', JSON.stringify(users[0], null, 2));
-    } else {
-      console.log('No users found for this query.');
-    }
     
     res.json({ users });
     
@@ -655,7 +624,7 @@ app.put('/api/users/:id', requireAuth(), async (req, res) => {
   const userId = req.params.id;
   const { avatar, bio, facebook, zalo, phone, website, profile_email, vtuber_description, artist_description, description } = req.body;
 
-  console.log('Profile update request:', { userId, userFromToken: req.auth.userId, body: req.body });
+
 
   // Tìm user theo _id hoặc clerkId
   let user = null;
@@ -1219,18 +1188,9 @@ app.post('/api/upload/images', requireAuth(), upload.array('images', 10), async 
 
 // Test endpoint to check upload availability  
 app.get('/api/upload/media/test', (req, res) => {
-  console.log('=== UPLOAD TEST ENDPOINT HIT ===');
-  console.log('Headers:', req.headers);
-  console.log('Origin:', req.headers.origin);
-  console.log('Referer:', req.headers.referer);
   res.json({ 
     message: 'Upload endpoint is accessible',
-    timestamp: new Date().toISOString(),
-    headers: {
-      origin: req.headers.origin,
-      referer: req.headers.referer,
-      'user-agent': req.headers['user-agent']
-    }
+    timestamp: new Date().toISOString()
   });
 });
 
@@ -1286,30 +1246,24 @@ app.post('/api/upload/media', (req, res, next) => {
   );
   
   if (isSuspicious && !req.headers.origin && !req.headers.referer) {
-    console.log('⚠️ Suspicious request detected:', userAgent);
     return res.status(403).json({ 
       error: 'Request không được phép',
       hint: 'Vui lòng sử dụng trình duyệt web'
     });
   }
   
-  console.log('Applying requireAuth middleware...');
-  
   // Apply requireAuth with custom error handling
   requireAuth()(req, res, (err) => {
     if (err) {
-      console.error('requireAuth failed:', err);
       return res.status(401).json({ 
         error: 'Authentication failed', 
         details: err.message,
         hint: 'Kiểm tra token Clerk'
       });
     }
-    console.log('requireAuth successful, user:', req.auth?.userId);
     
     // Apply rate limiting
     if (!checkUploadRateLimit(req.auth.userId)) {
-      console.log('⚠️ Upload rate limit exceeded for user:', req.auth.userId);
       return res.status(429).json({
         error: 'Quá nhiều upload',
         message: 'Vui lòng chờ một chút trước khi upload tiếp',
@@ -1320,11 +1274,8 @@ app.post('/api/upload/media', (req, res, next) => {
     next();
   });
 }, (req, res, next) => {
-  console.log('Before multer middleware');
   mediaUpload.single('media')(req, res, (err) => {
-    console.log('After multer middleware');
     if (err) {
-      console.error('Multer error:', err);
       if (err.code === 'LIMIT_FILE_SIZE') {
         return res.status(400).json({ error: 'File quá lớn. Tối đa 40MB.' });
       }
@@ -1348,7 +1299,6 @@ app.post('/api/upload/media', (req, res, next) => {
   
   try {
     if (!req.file) {
-      console.log('No file received in request');
       return res.status(400).json({ error: 'Không có file được upload' });
     }
     
@@ -1358,7 +1308,6 @@ app.post('/api/upload/media', (req, res, next) => {
     const allAllowedTypes = [...allowedImageTypes, ...allowedVideoTypes];
     
     if (!allAllowedTypes.includes(req.file.mimetype)) {
-      console.log('⚠️ Invalid file type:', req.file.mimetype);
       return res.status(400).json({ 
         error: 'Loại file không được hỗ trợ',
         allowed: 'Chỉ chấp nhận: JPEG, PNG, WebP, GIF, MP4, WebM, OGG, MOV'
@@ -1376,8 +1325,6 @@ app.post('/api/upload/media', (req, res, next) => {
     if (req.file.mimetype.startsWith('video/') && req.file.size > maxVideoSize) {
       return res.status(400).json({ error: 'Video tối đa 40MB' });
     }
-    
-    console.log('Processing file:', req.file.originalname, req.file.size, 'bytes');
 
     // Convert buffer to base64
     const b64 = Buffer.from(req.file.buffer).toString('base64');
@@ -1385,14 +1332,12 @@ app.post('/api/upload/media', (req, res, next) => {
 
     // Determine resource type
     const resourceType = req.file.mimetype.startsWith('video/') ? 'video' : 'image';
-    console.log('Determined resource type:', resourceType);
     
     // Xác định folder theo query param type
     let folder = 'vtuberverse/commission';
     if (req.query.type === 'avatar' || req.query.type === 'banner') {
       folder = 'vtuberverse/users';
     }
-    console.log('Upload folder:', folder);
 
     // Upload to Cloudinary with appropriate settings
     const uploadOptions = {
@@ -1411,15 +1356,7 @@ app.post('/api/upload/media', (req, res, next) => {
       ];
     }
 
-    console.log('Uploading to Cloudinary with options:', uploadOptions);
     const result = await cloudinary.uploader.upload(dataURI, uploadOptions);
-    console.log('Cloudinary upload result:', {
-      public_id: result.public_id,
-      secure_url: result.secure_url,
-      resource_type: result.resource_type,
-      format: result.format,
-      bytes: result.bytes
-    });
 
     res.json({
       success: true,
@@ -1433,7 +1370,6 @@ app.post('/api/upload/media', (req, res, next) => {
       bytes: result.bytes
     });
   } catch (error) {
-    console.error('Media upload error:', error);
     res.status(500).json({ error: 'Lỗi khi upload media: ' + error.message });
   }
 });
@@ -1453,7 +1389,6 @@ app.delete('/api/upload/image/:public_id', requireAuth(), async (req, res) => {
       res.status(400).json({ error: 'Không thể xóa hình ảnh' });
     }
   } catch (error) {
-    console.error('Delete error:', error);
     res.status(500).json({ error: 'Lỗi khi xóa hình ảnh' });
   }
 });

@@ -5,10 +5,18 @@ const { requireAuth } = require('@clerk/express');
 
 const router = express.Router();
 
-// Search users by username
+// Get users - handles both search and getAll
 router.get('/', async (req, res) => {
   try {
-    const { username } = req.query;
+    const { username, getAll } = req.query;
+    
+    // If explicitly requesting all users (for backward compatibility)
+    if (getAll === 'true') {
+      const users = await User.find({}).sort({ username: 1 });
+      return res.json({ users });
+    }
+    
+    // Search users by username
     if (username && username.trim()) {
       const searchTerm = username.trim();
       
@@ -27,14 +35,12 @@ router.get('/', async (req, res) => {
       };
       
       const users = await User.find(searchQuery).sort({ username: 1 });
-      console.log(`[SEARCH] Keyword: "${searchTerm}", Found: ${users.length} users`);
-      console.log(`[SEARCH] Results:`, users.map(u => ({ username: u.username, email: u.email })));
       return res.json({ users });
     }
-    // If no query or empty query, return empty array
+    
+    // If no query parameters, return empty array (not all users for security)
     return res.json({ users: [] });
   } catch (err) {
-    console.error('Error searching users:', err);
     res.status(500).json({ message: err.message });
   }
 });
@@ -150,11 +156,15 @@ router.post('/clerk-sync-test', async (req, res) => {
 // Update user online status
 router.post('/online', requireAuth(), async (req, res) => {
   try {
+    // Check MongoDB connection
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(500).json({ message: 'Database connection error' });
+    }
+
     // Get user ID from Clerk auth or fallback
     const userId = req.auth?.userId || req.auth?.user?.id;
     
     if (!userId) {
-      console.error('No user ID found in auth context');
       return res.status(401).json({ message: 'User not authenticated' });
     }
 
@@ -165,7 +175,6 @@ router.post('/online', requireAuth(), async (req, res) => {
     }
     
     if (!user) {
-      console.error('User not found for ID:', userId);
       return res.status(404).json({ message: 'User not found' });
     }
 
@@ -176,7 +185,6 @@ router.post('/online', requireAuth(), async (req, res) => {
     
     res.json({ message: 'Online status updated' });
   } catch (error) {
-    console.error('Error updating online status:', error);
     res.status(500).json({ message: 'Error updating online status' });
   }
 });
@@ -184,11 +192,15 @@ router.post('/online', requireAuth(), async (req, res) => {
 // Update user offline status
 router.post('/offline', requireAuth(), async (req, res) => {
   try {
+    // Check MongoDB connection
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(500).json({ message: 'Database connection error' });
+    }
+
     // Get user ID from Clerk auth or fallback
     const userId = req.auth?.userId || req.auth?.user?.id;
     
     if (!userId) {
-      console.error('No user ID found in auth context');
       return res.status(401).json({ message: 'User not authenticated' });
     }
 
@@ -199,7 +211,6 @@ router.post('/offline', requireAuth(), async (req, res) => {
     }
     
     if (!user) {
-      console.error('User not found for ID:', userId);
       return res.status(404).json({ message: 'User not found' });
     }
 
@@ -210,30 +221,40 @@ router.post('/offline', requireAuth(), async (req, res) => {
     
     res.json({ message: 'Offline status updated' });
   } catch (error) {
-    console.error('Error updating offline status:', error);
     res.status(500).json({ message: 'Error updating offline status' });
   }
 });
 
+
 // Get user online status
 router.get('/:id/status', async (req, res) => {
   try {
+    // Check MongoDB connection
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(500).json({ message: 'Database connection error' });
+    }
+
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: 'Invalid user ID format' });
+    }
+
     const user = await User.findById(req.params.id).select('isOnline lastSeen');
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
     
-    // Calculate if user is considered online (within last 5 minutes)
-    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-    const isRecentlyActive = user.lastSeen > fiveMinutesAgo;
+    // Calculate if user is considered online (within last 3 minutes for better responsiveness)
+    const threeMinutesAgo = new Date(Date.now() - 3 * 60 * 1000);
+    const lastSeenDate = user.lastSeen ? new Date(user.lastSeen) : new Date(0);
+    const isRecentlyActive = lastSeenDate > threeMinutesAgo;
     
     res.json({
-      isOnline: user.isOnline && isRecentlyActive,
-      lastSeen: user.lastSeen,
-      isRecentlyActive
+      isOnline: Boolean(user.isOnline) && isRecentlyActive,
+      lastSeen: user.lastSeen || null,
+      isRecentlyActive: Boolean(isRecentlyActive)
     });
   } catch (error) {
-    console.error('Error getting user status:', error);
     res.status(500).json({ message: 'Error getting user status' });
   }
 });
