@@ -58,6 +58,16 @@ const collabSchema = new mongoose.Schema({
     thumbnail: { type: String, default: '' }
   },
   
+  // Danh sách chờ xác nhận partner
+  partner_waiting_for_confirm: [
+    {
+      user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      description: String,
+      youtubeLink: String,
+      createdAt: { type: Date, default: Date.now }
+    }
+  ],
+  
   // Trạng thái
   status: { 
     type: String, 

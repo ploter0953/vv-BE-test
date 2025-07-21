@@ -56,28 +56,50 @@ async function updateCollabStatus(collabId) {
     let totalLikes = 0;
     let totalComments = 0;
 
-    for (const partner of partners) {
-      if (partner.link) {
+    // Nếu đang open, chỉ check link của creator
+    if (collab.status === 'open') {
+      const link = collab.youtube_link_1;
+      if (link) {
         try {
-          const videoId = youtubeService.extractVideoId(partner.link);
+          const videoId = youtubeService.extractVideoId(link);
           if (videoId) {
-            // Use 5 minute cache for status checks in routes
-            const streamStatus = await youtubeService.checkStreamStatus(videoId, 5 * 60 * 1000);
+            const streamStatus = await youtubeService.checkStreamStatus(videoId, 10 * 60 * 1000);
             if (streamStatus.isValid && streamStatus.isLive) {
               hasLiveStream = true;
               allStreamsEnded = false;
             } else if (streamStatus.isValid && streamStatus.isWaitingRoom) {
               hasWaitingRoom = true;
               allStreamsEnded = false;
-            } else if (streamStatus.isValid) {
-              // Đã kết thúc
-              totalViews += streamStatus.viewCount || 0;
-              totalLikes += streamStatus.likeCount || 0;
-              totalComments += streamStatus.commentCount || 0;
             }
           }
         } catch (error) {
-          console.error(`Error checking stream for ${partner.field}:`, error.message);
+          console.error(`Error checking stream for creator:`, error.message);
+        }
+      }
+    } else {
+      // Các trạng thái khác: check tất cả link
+      for (const partner of partners) {
+        if (partner.link) {
+          try {
+            const videoId = youtubeService.extractVideoId(partner.link);
+            if (videoId) {
+              const streamStatus = await youtubeService.checkStreamStatus(videoId, 5 * 60 * 1000);
+              if (streamStatus.isValid && streamStatus.isLive) {
+                hasLiveStream = true;
+                allStreamsEnded = false;
+              } else if (streamStatus.isValid && streamStatus.isWaitingRoom) {
+                hasWaitingRoom = true;
+                allStreamsEnded = false;
+              } else if (streamStatus.isValid) {
+                // Đã kết thúc
+                totalViews += streamStatus.viewCount || 0;
+                totalLikes += streamStatus.likeCount || 0;
+                totalComments += streamStatus.commentCount || 0;
+              }
+            }
+          } catch (error) {
+            console.error(`Error checking stream for ${partner.field}:`, error.message);
+          }
         }
       }
     }
@@ -128,6 +150,16 @@ async function updateCollabStatus(collabId) {
     if (hasWaitingRoom && currentPartners < collab.maxPartners) {
       await Collab.findByIdAndUpdate(collabId, {
         status: 'open',
+        lastStatusCheck: new Date()
+      });
+      return;
+    }
+
+    // Nếu collab đang open và KHÔNG có stream nào hợp lệ (không waiting room, không live)
+    if (collab.status === 'open' && !hasWaitingRoom && !hasLiveStream) {
+      await Collab.findByIdAndUpdate(collabId, {
+        status: 'cancelled',
+        endedAt: new Date(),
         lastStatusCheck: new Date()
       });
       return;
@@ -238,14 +270,12 @@ router.post('/', requireAuth(), createCollabLimiter, async (req, res) => {
     if (!user) {
       user = await User.findById(userId);
     }
-    
     if (!user) {
       return res.status(404).json({ error: 'User không tồn tại' });
     }
-
-    // Check Beta Access badge
-    if (!user.badges || !user.badges.includes('beta_access')) {
-      return res.status(403).json({ error: 'Bạn cần có badge Beta Access để tạo collab.' });
+    // Kiểm tra đủ YouTube và Facebook
+    if (!user.youtube || !user.facebook) {
+      return res.status(400).json({ error: 'Bạn cần cập nhật đủ link YouTube và Facebook trong profile để sử dụng chức năng này.' });
     }
     
     // Check if user already has an active collab (open or in_progress)
@@ -329,9 +359,12 @@ router.post('/:id/match', requireAuth(), matchCollabLimiter, async (req, res) =>
     if (!user) {
       user = await User.findById(userId);
     }
-    
     if (!user) {
       return res.status(404).json({ error: 'User không tồn tại' });
+    }
+    // Kiểm tra đủ YouTube và Facebook
+    if (!user.youtube || !user.facebook) {
+      return res.status(400).json({ error: 'Bạn cần cập nhật đủ link YouTube và Facebook trong profile để sử dụng chức năng này.' });
     }
     
     // Get collab
@@ -400,6 +433,108 @@ router.post('/:id/match', requireAuth(), matchCollabLimiter, async (req, res) =>
   } catch (error) {
     console.error('Error matching collab:', error);
     res.status(500).json({ error: 'Lỗi khi match collab' });
+  }
+});
+
+// User gửi yêu cầu match collab (thêm vào mảng chờ, tối đa 10)
+router.post('/:id/request-match', requireAuth(), async (req, res) => {
+  try {
+    const { description, youtubeLink } = req.body;
+    const collab = await Collab.findById(req.params.id);
+    if (!collab) return res.status(404).json({ error: 'Collab không tồn tại' });
+    if (collab.partner_waiting_for_confirm.length >= 10) {
+      return res.status(400).json({ error: 'Danh sách yêu cầu đã đầy, bạn khám phá các phiên collab khác bên dưới nhé!' });
+    }
+    // Không cho gửi trùng user
+    const userId = req.auth?.userId || req.auth?.user?.id;
+    if (collab.partner_waiting_for_confirm.some(w => w.user.toString() === userId)) {
+      return res.status(400).json({ error: 'Bạn đã gửi yêu cầu rồi, vui lòng chờ chủ collab xác nhận!' });
+    }
+    // Không cho gửi nếu đã là partner chính thức
+    if ([collab.partner_1, collab.partner_2, collab.partner_3].some(p => p && p.toString() === userId)) {
+      return res.status(400).json({ error: 'Bạn đã là partner của collab này!' });
+    }
+    collab.partner_waiting_for_confirm.push({
+      user: userId,
+      description,
+      youtubeLink
+    });
+    await collab.save();
+    res.json({ message: 'Gửi yêu cầu thành công!' });
+  } catch (error) {
+    res.status(500).json({ error: 'Lỗi khi gửi yêu cầu match' });
+  }
+});
+
+// Chủ collab lấy danh sách chờ
+router.get('/:id/waiting-list', requireAuth(), async (req, res) => {
+  try {
+    const collab = await Collab.findById(req.params.id).populate('partner_waiting_for_confirm.user', 'username avatar');
+    if (!collab) return res.status(404).json({ error: 'Collab không tồn tại' });
+    const userId = req.auth?.userId || req.auth?.user?.id;
+    if (collab.creator.toString() !== userId) {
+      return res.status(403).json({ error: 'Chỉ chủ collab mới xem được danh sách này' });
+    }
+    res.json({ waitingList: collab.partner_waiting_for_confirm });
+  } catch (error) {
+    res.status(500).json({ error: 'Lỗi khi lấy danh sách chờ' });
+  }
+});
+
+// Chủ collab chấp nhận yêu cầu (chuyển sang partner chính thức, xoá khỏi mảng chờ)
+router.post('/:id/accept-waiting/:waitingId', requireAuth(), async (req, res) => {
+  try {
+    const collab = await Collab.findById(req.params.id);
+    if (!collab) return res.status(404).json({ error: 'Collab không tồn tại' });
+    const userId = req.auth?.userId || req.auth?.user?.id;
+    if (collab.creator.toString() !== userId) {
+      return res.status(403).json({ error: 'Chỉ chủ collab mới có quyền này' });
+    }
+    if (getCurrentPartnerCount(collab) >= collab.maxPartners) {
+      collab.partner_waiting_for_confirm = [];
+      await collab.save();
+      return res.status(400).json({ error: 'Collab đã đủ người, không thể chấp nhận thêm!' });
+    }
+    const waitingIndex = collab.partner_waiting_for_confirm.findIndex(w => w._id.toString() === req.params.waitingId);
+    if (waitingIndex === -1) return res.status(404).json({ error: 'Yêu cầu không tồn tại' });
+    const waiting = collab.partner_waiting_for_confirm[waitingIndex];
+    // Thêm vào partner chính thức
+    const slot = getNextPartnerSlot(collab);
+    if (!slot) return res.status(400).json({ error: 'Collab đã đủ người!' });
+    collab[`partner_${slot}`] = waiting.user;
+    collab[`partner_${slot}_description`] = waiting.description;
+    if (slot === 1) collab['youtube_link_1_partner'] = waiting.youtubeLink;
+    else collab[`youtube_link_${slot}`] = waiting.youtubeLink;
+    // Xoá khỏi mảng chờ
+    collab.partner_waiting_for_confirm.splice(waitingIndex, 1);
+    // Nếu đã đủ người, xoá hết mảng chờ
+    if (getCurrentPartnerCount(collab) >= collab.maxPartners) {
+      collab.partner_waiting_for_confirm = [];
+    }
+    await collab.save();
+    await updateCollabStatus(collab._id);
+    res.json({ message: 'Đã thêm partner vào collab!' });
+  } catch (error) {
+    res.status(500).json({ error: 'Lỗi khi chấp nhận yêu cầu' });
+  }
+});
+
+// Chủ collab từ chối yêu cầu (xoá khỏi mảng chờ)
+router.post('/:id/reject-waiting/:waitingId', requireAuth(), async (req, res) => {
+  try {
+    const collab = await Collab.findById(req.params.id);
+    if (!collab) return res.status(404).json({ error: 'Collab không tồn tại' });
+    const userId = req.auth?.userId || req.auth?.user?.id;
+    if (collab.creator.toString() !== userId) {
+      return res.status(403).json({ error: 'Chỉ chủ collab mới có quyền này' });
+    }
+    const waitingIndex = collab.partner_waiting_for_confirm.findIndex(w => w._id.toString() === req.params.waitingId);
+    if (waitingIndex === -1) return res.status(404).json({ error: 'Yêu cầu không tồn tại' });
+    collab.partner_waiting_for_confirm.splice(waitingIndex, 1);
+    await collab.save();
+    res.json({ message: 'Đã từ chối yêu cầu!' });
+  } catch (error) {
+    res.status(500).json({ error: 'Lỗi khi từ chối yêu cầu' });
   }
 });
 
