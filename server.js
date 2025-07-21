@@ -10,9 +10,11 @@ const multer = require('multer');
 const userRoutes = require('./routes/userRoutes');
 const commissionRoutes = require('./routes/commissionRoutes');
 const orderRoutes = require('./routes/orderRoutes');
+const collabRoutes = require('./routes/collabRoutes');
 const User = require('./models/User');
 const Commission = require('./models/Commission');
 const Order = require('./models/Order');
+const Collab = require('./models/Collab');
 const Vote = require('./models/Vote');
 const Feedback = require('./models/Feedback');
 const { requireAuth } = require('@clerk/express');
@@ -1909,6 +1911,9 @@ app.use('/api/commissions', require('./routes/commissionRoutes'));
 // Mount orderRoutes
 app.use('/api/orders', require('./routes/orderRoutes'));
 
+// Mount collabRoutes
+app.use('/api/collabs', require('./routes/collabRoutes'));
+
 // Global error handler
 app.use((err, req, res, next) => {
   console.error('Global error handler:', err);
@@ -1969,10 +1974,183 @@ app.use((error, req, res, next) => {
   });
 });
 
+// Background task to update collab status every 30 seconds
+let isUpdating = false; // Prevent concurrent updates
+
+const updateCollabStatuses = async () => {
+  if (isUpdating) {
+    console.log('=== Skipping update - previous update still running ===');
+    return;
+  }
+
+  try {
+    isUpdating = true;
+    console.log('=== Updating collab statuses ===');
+    
+    const now = new Date();
+    const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
+    const oneMinuteAgo = new Date(now.getTime() - 1 * 60 * 1000);
+    
+    // Get collabs based on their status and last check time
+    const openCollabs = await Collab.find({
+      status: 'open',
+      lastStatusCheck: { $lt: fiveMinutesAgo } // Only update if last check was > 5 minutes ago
+    }).limit(5);
+    
+    const inProgressCollabs = await Collab.find({
+      status: 'in_progress',
+      lastStatusCheck: { $lt: oneMinuteAgo } // Only update if last check was > 1 minute ago
+    }).limit(10);
+    
+    const allCollabs = [...openCollabs, ...inProgressCollabs];
+    
+    console.log(`Found ${allCollabs.length} collabs to update (${openCollabs.length} open, ${inProgressCollabs.length} in_progress)`);
+    
+    if (allCollabs.length === 0) {
+      console.log('No collabs need updating');
+      return;
+    }
+    
+    // Process collabs in batches to avoid rate limiting
+    const batchSize = 3;
+    for (let i = 0; i < allCollabs.length; i += batchSize) {
+      const batch = allCollabs.slice(i, i + batchSize);
+      
+      await Promise.allSettled(batch.map(async (collab) => {
+        try {
+          const youtubeService = require('./services/youtubeService');
+          const updateData = { lastStatusCheck: new Date() };
+          
+          // Check each partner's YouTube link and update their stream info
+          const partners = [
+            { link: collab.youtube_link_1, field: 'stream_info_1' }, // Creator
+            { link: collab.youtube_link_1_partner, field: 'stream_info_1_partner' }, // Partner 1
+            { link: collab.youtube_link_2, field: 'stream_info_2' }, // Partner 2
+            { link: collab.youtube_link_3, field: 'stream_info_3' }  // Partner 3
+          ];
+          
+          let hasLiveStream = false;
+          let hasWaitingRoom = false;
+          
+          for (const partner of partners) {
+            if (partner.link) {
+              try {
+                const videoId = youtubeService.extractVideoId(partner.link);
+                if (videoId) {
+                  // Use different cache timeouts based on collab status
+                  const cacheTimeout = collab.status === 'in_progress' ? 1 * 60 * 1000 : 5 * 60 * 1000; // 1 min for in_progress, 5 min for open
+                  const streamStatus = await youtubeService.checkStreamStatus(videoId, cacheTimeout);
+                  
+                  // Update this partner's stream info
+                  updateData[partner.field] = {
+                    isLive: streamStatus.isLive,
+                    viewCount: streamStatus.viewCount || 0,
+                    title: streamStatus.title || '',
+                    thumbnail: streamStatus.thumbnail || ''
+                  };
+                  
+                  if (streamStatus.isValid && streamStatus.isLive) {
+                    hasLiveStream = true;
+                  } else if (streamStatus.isValid && streamStatus.isWaitingRoom) {
+                    hasWaitingRoom = true;
+                  }
+                }
+              } catch (error) {
+                console.error(`Error checking stream for ${partner.field}:`, error.message);
+              }
+            }
+          }
+          
+          // Update all stream info at once
+          await Collab.findByIdAndUpdate(collab._id, updateData);
+          
+                        // Update status based on conditions
+              const currentPartners = [collab.partner_2, collab.partner_3].filter(Boolean).length;
+              const hasAtLeastOnePartner = currentPartners >= 1;
+          
+          if (hasLiveStream) {
+            if (hasAtLeastOnePartner) {
+              await Collab.findByIdAndUpdate(collab._id, {
+                status: 'in_progress',
+                startedAt: collab.startedAt || new Date(),
+                lastStatusCheck: new Date()
+              });
+            } else {
+              await Collab.findByIdAndUpdate(collab._id, {
+                status: 'cancelled',
+                endedAt: new Date(),
+                lastStatusCheck: new Date()
+              });
+            }
+          } else if (hasWaitingRoom) {
+            if (currentPartners >= collab.maxPartners) {
+              await Collab.findByIdAndUpdate(collab._id, {
+                status: 'in_progress',
+                startedAt: collab.startedAt || new Date(),
+                lastStatusCheck: new Date()
+              });
+            } else {
+              await Collab.findByIdAndUpdate(collab._id, {
+                lastStatusCheck: new Date()
+              });
+            }
+          } else if (!hasLiveStream && !hasWaitingRoom) {
+            // Check if any stream has ended
+            const allStreamsEnded = partners.every(partner => {
+              if (!partner.link) return true; // No link means no stream to check
+              const streamInfo = updateData[partner.field];
+              return streamInfo && !streamInfo.isLive;
+            });
+            
+            if (allStreamsEnded) {
+              await Collab.findByIdAndUpdate(collab._id, {
+                status: 'ended',
+                endedAt: new Date(),
+                lastStatusCheck: new Date()
+              });
+            }
+          }
+        } catch (error) {
+          console.error(`Error updating collab ${collab._id}:`, error.message);
+        }
+      }));
+      
+      // Wait between batches to avoid rate limiting
+      if (i + batchSize < allCollabs.length) {
+        await new Promise(resolve => setTimeout(resolve, 2000)); // 2 seconds delay
+      }
+    }
+    
+    // Clean up ended collabs after 15 minutes
+    const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
+    const endedCollabs = await Collab.find({
+      status: 'ended',
+      endedAt: { $lt: fifteenMinutesAgo }
+    });
+    
+    if (endedCollabs.length > 0) {
+      console.log(`Cleaning up ${endedCollabs.length} ended collabs`);
+      await Collab.deleteMany({
+        status: 'ended',
+        endedAt: { $lt: fifteenMinutesAgo }
+      });
+    }
+    
+  } catch (error) {
+    console.error('Error in collab status update task:', error);
+  } finally {
+    isUpdating = false;
+  }
+};
+
+// Start background task
+setInterval(updateCollabStatuses, 30000); // Every 30 seconds - checks collab status and updates based on timing rules
+
 // Start server
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server is running on port ${PORT}`);
   console.log(`API available at http://localhost:${PORT}/api`);
   console.log(`Server accessible from other machines on the network`);
   console.log(`CORS Enabled with security restrictions`);
+  console.log(`Collab status update task started (every 30 seconds - open: 5min, in_progress: 1min)`);
 }); 
