@@ -473,6 +473,23 @@ router.get('/my/active', requireAuth(), async (req, res) => {
   }
 });
 
+// GET /api/collabs/featured - 6 collab in_progress có tổng view cao nhất
+router.get('/featured', async (req, res) => {
+  try {
+    // Lấy collab in_progress, sort theo tổng view giảm dần
+    const collabs = await Collab.find({ status: 'in_progress' })
+      .sort({ totalViews: -1, updatedAt: -1 })
+      .limit(6)
+      .populate('creator', 'username avatar')
+      .populate('partner_1', 'username avatar')
+      .populate('partner_2', 'username avatar')
+      .populate('partner_3', 'username avatar');
+    res.json({ collabs });
+  } catch (error) {
+    res.status(500).json({ error: 'Lỗi khi lấy collab nổi bật' });
+  }
+});
+
 // Update stream info (for real-time updates)
 router.put('/:id/stream-info', youtubeApiLimiter, async (req, res) => {
   try {
