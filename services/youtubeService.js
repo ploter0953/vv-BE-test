@@ -49,13 +49,27 @@ class YouTubeService {
     if (!url) return null;
     
     const patterns = [
-      /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/,
-      /youtube\.com\/live\/([^&\n?#]+)/
+      // youtube.com/watch?v=VIDEO_ID
+      /(?:youtube\.com\/watch\?v=)([^&\n?#]+)/,
+      // youtu.be/VIDEO_ID (with or without query parameters)
+      /(?:youtu\.be\/)([^&\n?#]+)/,
+      // youtube.com/embed/VIDEO_ID
+      /(?:youtube\.com\/embed\/)([^&\n?#]+)/,
+      // youtube.com/live/VIDEO_ID
+      /(?:youtube\.com\/live\/)([^&\n?#]+)/
     ];
     
     for (const pattern of patterns) {
       const match = url.match(pattern);
-      if (match) return match[1];
+      if (match) {
+        // Return the video ID (first 11 characters for YouTube video IDs)
+        const videoId = match[1];
+        // YouTube video IDs are always 11 characters
+        if (videoId && videoId.length >= 11) {
+          return videoId.substring(0, 11);
+        }
+        return videoId;
+      }
     }
     
     return null;

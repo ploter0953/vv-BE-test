@@ -1988,20 +1988,18 @@ const updateCollabStatuses = async () => {
     console.log('=== Updating collab statuses ===');
     
     const now = new Date();
-    const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
-    const oneMinuteAgo = new Date(now.getTime() - 1 * 60 * 1000);
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+    const oneMinuteAgo = new Date(Date.now() - 1 * 60 * 1000);
     
     // Get collabs based on their status and last check time
     const openCollabs = await Collab.find({
-      status: 'open',
-      lastStatusCheck: { $lt: fiveMinutesAgo } // Only update if last check was > 5 minutes ago
-    }).limit(5);
-    
+      status: { $in: ['open', 'setting_up'] },
+      lastStatusCheck: { $lt: tenMinutesAgo }
+    }).limit(10);
     const inProgressCollabs = await Collab.find({
       status: 'in_progress',
-      lastStatusCheck: { $lt: oneMinuteAgo } // Only update if last check was > 1 minute ago
+      lastStatusCheck: { $lt: oneMinuteAgo }
     }).limit(10);
-    
     const allCollabs = [...openCollabs, ...inProgressCollabs];
     
     console.log(`Found ${allCollabs.length} collabs to update (${openCollabs.length} open, ${inProgressCollabs.length} in_progress)`);
@@ -2038,7 +2036,9 @@ const updateCollabStatuses = async () => {
                 const videoId = youtubeService.extractVideoId(partner.link);
                 if (videoId) {
                   // Use different cache timeouts based on collab status
-                  const cacheTimeout = collab.status === 'in_progress' ? 1 * 60 * 1000 : 5 * 60 * 1000; // 1 min for in_progress, 5 min for open
+                  let cacheTimeout = 5 * 60 * 1000; // default 5 min
+                  if (collab.status === 'in_progress') cacheTimeout = 1 * 60 * 1000;
+                  if (collab.status === 'open' || collab.status === 'setting_up') cacheTimeout = 10 * 60 * 1000;
                   const streamStatus = await youtubeService.checkStreamStatus(videoId, cacheTimeout);
                   
                   // Update this partner's stream info
@@ -2121,18 +2121,18 @@ const updateCollabStatuses = async () => {
       }
     }
     
-    // Clean up ended collabs after 15 minutes
-    const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
+    // Clean up ended collabs after 1 hour
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
     const endedCollabs = await Collab.find({
       status: 'ended',
-      endedAt: { $lt: fifteenMinutesAgo }
+      endedAt: { $lt: oneHourAgo }
     });
     
     if (endedCollabs.length > 0) {
       console.log(`Cleaning up ${endedCollabs.length} ended collabs`);
       await Collab.deleteMany({
         status: 'ended',
-        endedAt: { $lt: fifteenMinutesAgo }
+        endedAt: { $lt: oneHourAgo }
       });
     }
     

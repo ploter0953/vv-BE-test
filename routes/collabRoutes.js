@@ -51,19 +51,29 @@ async function updateCollabStatus(collabId) {
     
     let hasLiveStream = false;
     let hasWaitingRoom = false;
-    
+    let allStreamsEnded = true;
+    let totalViews = 0;
+    let totalLikes = 0;
+    let totalComments = 0;
+
     for (const partner of partners) {
       if (partner.link) {
         try {
-                  const videoId = youtubeService.extractVideoId(partner.link);
-        if (videoId) {
-          // Use 5 minute cache for status checks in routes
-          const streamStatus = await youtubeService.checkStreamStatus(videoId, 5 * 60 * 1000);
-            
+          const videoId = youtubeService.extractVideoId(partner.link);
+          if (videoId) {
+            // Use 5 minute cache for status checks in routes
+            const streamStatus = await youtubeService.checkStreamStatus(videoId, 5 * 60 * 1000);
             if (streamStatus.isValid && streamStatus.isLive) {
               hasLiveStream = true;
+              allStreamsEnded = false;
             } else if (streamStatus.isValid && streamStatus.isWaitingRoom) {
               hasWaitingRoom = true;
+              allStreamsEnded = false;
+            } else if (streamStatus.isValid) {
+              // Đã kết thúc
+              totalViews += streamStatus.viewCount || 0;
+              totalLikes += streamStatus.likeCount || 0;
+              totalComments += streamStatus.commentCount || 0;
             }
           }
         } catch (error) {
@@ -71,45 +81,56 @@ async function updateCollabStatus(collabId) {
         }
       }
     }
-    
-    // Update status based on stream conditions
-    if (hasLiveStream) {
-      if (hasAtLeastOnePartner) {
-        // Has partners and stream is live -> in_progress
-        await Collab.findByIdAndUpdate(collabId, {
-          status: 'in_progress',
-          startedAt: new Date(),
-          lastStatusCheck: new Date()
-        });
-      } else {
-        // No partners but stream is live -> cancelled
-        await Collab.findByIdAndUpdate(collabId, {
-          status: 'cancelled',
-          endedAt: new Date(),
-          lastStatusCheck: new Date()
-        });
-      }
-    } else if (hasWaitingRoom) {
-      if (currentPartners >= collab.maxPartners) {
-        // Enough partners -> in_progress
-        await Collab.findByIdAndUpdate(collabId, {
-          status: 'in_progress',
-          startedAt: new Date(),
-          lastStatusCheck: new Date()
-        });
-      } else {
-        // Not enough partners -> keep open
-        await Collab.findByIdAndUpdate(collabId, {
-          lastStatusCheck: new Date()
-        });
-      }
-    } else if (!hasLiveStream && !hasWaitingRoom) {
-      // All streams have ended
+
+    // 1. Nếu không có partner nào và stream đã bắt đầu hoặc kết thúc -> cancelled
+    if (currentPartners === 0 && (hasLiveStream || allStreamsEnded)) {
       await Collab.findByIdAndUpdate(collabId, {
-        status: 'ended',
+        status: 'cancelled',
         endedAt: new Date(),
         lastStatusCheck: new Date()
       });
+      return;
+    }
+
+    // 2. Nếu stream đã kết thúc (tất cả đều ended)
+    if (allStreamsEnded) {
+      await Collab.findByIdAndUpdate(collabId, {
+        status: 'ended',
+        endedAt: new Date(),
+        lastStatusCheck: new Date(),
+        totalViews,
+        totalLikes,
+        totalComments
+      });
+      return;
+    }
+
+    // 3. Nếu stream đang live và có ít nhất 1 partner -> in_progress
+    if (hasLiveStream && currentPartners >= 1) {
+      await Collab.findByIdAndUpdate(collabId, {
+        status: 'in_progress',
+        startedAt: collab.startedAt || new Date(),
+        lastStatusCheck: new Date()
+      });
+      return;
+    }
+
+    // 4. Nếu đủ số người (currentPartners >= maxPartners) và stream chưa bắt đầu -> setting_up
+    if (hasWaitingRoom && currentPartners >= collab.maxPartners) {
+      await Collab.findByIdAndUpdate(collabId, {
+        status: 'setting_up',
+        lastStatusCheck: new Date()
+      });
+      return;
+    }
+
+    // 5. Nếu chưa đủ số người và stream chưa bắt đầu -> open
+    if (hasWaitingRoom && currentPartners < collab.maxPartners) {
+      await Collab.findByIdAndUpdate(collabId, {
+        status: 'open',
+        lastStatusCheck: new Date()
+      });
+      return;
     }
   } catch (error) {
     console.error('Error updating collab status:', error);
@@ -201,6 +222,15 @@ router.post('/', requireAuth(), createCollabLimiter, async (req, res) => {
         error: 'Lỗi khi đăng collab. Link không hợp lệ hoặc stream đã bắt đầu' 
       });
     }
+
+    // Check scheduledStartTime không quá 12 tiếng so với thời điểm tạo collab
+    const now = Date.now();
+    const scheduledStart = streamStatus.scheduledStartTime ? new Date(streamStatus.scheduledStartTime).getTime() : null;
+    if (!scheduledStart || scheduledStart - now > 12 * 60 * 60 * 1000) {
+      return res.status(400).json({
+        error: 'Thời gian bắt đầu stream phải trong vòng 12 tiếng kể từ thời điểm tạo collab.'
+      });
+    }
     
     // Get user
     const userId = req.auth?.userId || req.auth?.user?.id;
@@ -211,6 +241,11 @@ router.post('/', requireAuth(), createCollabLimiter, async (req, res) => {
     
     if (!user) {
       return res.status(404).json({ error: 'User không tồn tại' });
+    }
+
+    // Check Beta Access badge
+    if (!user.badges || !user.badges.includes('beta_access')) {
+      return res.status(403).json({ error: 'Bạn cần có badge Beta Access để tạo collab.' });
     }
     
     // Check if user already has an active collab (open or in_progress)
@@ -320,6 +355,12 @@ router.post('/:id/match', requireAuth(), matchCollabLimiter, async (req, res) =>
     // Check if user is the creator
     if (collab.creator.equals(user._id)) {
       return res.status(400).json({ error: 'Bạn không thể match với collab của chính mình' });
+    }
+
+    // Check if partner's videoId trùng với creator's videoId
+    const creatorVideoId = youtubeService.extractVideoId(collab.youtube_link_1);
+    if (videoId === creatorVideoId) {
+      return res.status(400).json({ error: 'Link stream của bạn trùng với chủ collab, vui lòng chọn stream khác.' });
     }
     
     // Get next available slot

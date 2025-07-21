@@ -61,14 +61,19 @@ const collabSchema = new mongoose.Schema({
   // Trạng thái
   status: { 
     type: String, 
-    enum: ['open', 'in_progress', 'ended', 'cancelled'],
+    enum: ['open', 'setting_up', 'in_progress', 'ended', 'cancelled'],
     default: 'open' 
   },
   
   // Timestamps cho tracking
   startedAt: { type: Date },
   endedAt: { type: Date },
-  lastStatusCheck: { type: Date, default: Date.now }
+  lastStatusCheck: { type: Date, default: Date.now },
+  
+  // Tổng quan khi ended
+  totalViews: { type: Number, default: 0 },
+  totalLikes: { type: Number, default: 0 },
+  totalComments: { type: Number, default: 0 },
 }, { 
   timestamps: true 
 });
